@@ -3,6 +3,9 @@ const storeName = 'data';
 const vaultSlot = 'vault-v2';
 const publicSlot = 'public';
 const accessSlot = 'access-v2';
+const simpleAccessSlot = 'simple-access-v1';
+const simpleVaultSlot = 'simple-vault-v1';
+const simplePublicSlot = 'simple-public-v1';
 const simpleAdminPassword = '1234';
 const academicFields = ['academic_name', 'academic_phone', 'academic_email'];
 const privateFields = ['financial_name', 'financial_phone', 'financial_email', 'rut'];
@@ -160,11 +163,29 @@ export async function openAccount(username, password) {
     const accounts = await read(accessSlot);
     if (username === 'admin' && password === simpleAdminPassword) {
         if (accounts?.admin?.simpleAccess) return loadAccount(await authenticate(accounts, username, password));
-        if (accounts || await read(vaultSlot) || await read('vault')) return { accessUpdate: true };
-        return installSimpleAdmin();
+        return openSimpleAdmin();
     }
     if (!accounts) throw new Error('Usuario o contraseña incorrectos.');
     return finishSignIn(await authenticate(accounts, username, password));
+}
+
+async function openSimpleAdmin() {
+    const accounts = await read(simpleAccessSlot);
+    if (accounts) {
+        const { username, sharedKey, privateKey } = await authenticate(accounts, 'admin', simpleAdminPassword);
+        return loadAccount({ username, sharedKey, privateKey, vaultSlot: simpleVaultSlot, publicSlot: simplePublicSlot });
+    }
+    const material = {
+        shared: encodeBytes(crypto.getRandomValues(new Uint8Array(32))),
+        private: encodeBytes(crypto.getRandomValues(new Uint8Array(32)))
+    };
+    const admin = await wrapSimpleAdmin(material);
+    const { username, sharedKey, privateKey } = await authenticate({ admin }, 'admin', simpleAdminPassword);
+    const data = emptyData();
+    return { session: await saveVault({
+        username, sharedKey, privateKey, vaultSlot: simpleVaultSlot, publicSlot: simplePublicSlot,
+        revision: 0, recoveredLegacyRevision: 0, canRecoverLegacy: false, data
+    }, data, undefined, { slot: simpleAccessSlot, expected: null, updated: { admin } }) };
 }
 
 async function wrapSimpleAdmin(material) {
@@ -266,10 +287,10 @@ async function readData(account, envelope) {
 }
 
 async function loadAccount(account) {
-    const [envelope, legacy] = await Promise.all([read(vaultSlot), read('vault')]);
+    const [envelope, legacy] = await Promise.all([read(account.vaultSlot ?? vaultSlot), read('vault')]);
     const recoveredLegacyRevision = envelope?.recoveredLegacyRevision ?? 0;
     const active = { ...account, recoveredLegacyRevision, canRecoverLegacy: Boolean(
-        account.privateKey && legacy && legacy.revision !== recoveredLegacyRevision
+        !account.vaultSlot && account.privateKey && legacy && legacy.revision !== recoveredLegacyRevision
     ) };
     if (envelope) {
         return { session: { ...active, revision: envelope.revision, data: await readData(account, envelope) } };
@@ -316,7 +337,7 @@ export async function migrateLegacy(session, password) {
 
 export async function exportEncryptedBackup(session) {
     if (!session.privateKey) throw new Error('El respaldo está disponible para Administración.');
-    const envelope = await read(vaultSlot);
+    const envelope = await read(session.vaultSlot ?? vaultSlot);
     const pack = (section) => section ? { iv: encodeBytes(section.iv), ciphertext: encodeBytes(section.ciphertext) } : null;
     return JSON.stringify({ format: 'student-finder-backup', version: 1,
         shared: pack(envelope.shared), private: pack(envelope.private) });
@@ -359,6 +380,8 @@ function withAcademicChanges(previous, submitted) {
 
 export async function saveVault(session, data, expectedLegacyRevision, accountUpdate) {
     const admin = Boolean(session.privateKey);
+    const storageSlot = session.vaultSlot ?? vaultSlot;
+    const publicationSlot = session.publicSlot ?? publicSlot;
     const revision = session.revision + 1;
     const submitted = admin ? data.students : withAcademicChanges(session.data.students, data.students);
     const students = submitted.map((student) => pick(student, ['id', 'name', 'course', 'given_names', 'family_names', ...academicFields]));
@@ -386,7 +409,7 @@ export async function saveVault(session, data, expectedLegacyRevision, accountUp
     await new Promise((resolve, reject) => {
         const tx = db.transaction(storeName, 'readwrite');
         const store = tx.objectStore(storeName);
-        const current = store.get(vaultSlot);
+        const current = store.get(storageSlot);
         let changed = false;
         current.onsuccess = () => {
             if ((current.result?.revision ?? 0) !== session.revision) {
@@ -396,16 +419,16 @@ export async function saveVault(session, data, expectedLegacyRevision, accountUp
             }
             const commit = () => {
                 store.put({ shared, private: admin ? sealedPrivate : current.result?.private ?? null, revision,
-                    recoveredLegacyRevision: session.recoveredLegacyRevision }, vaultSlot);
-                if (admin) store.put(Object.fromEntries(published), publicSlot);
-                if (accountUpdate) store.put(accountUpdate.updated, accessSlot);
+                    recoveredLegacyRevision: session.recoveredLegacyRevision }, storageSlot);
+                if (admin) store.put(Object.fromEntries(published), publicationSlot);
+                if (accountUpdate) store.put(accountUpdate.updated, accountUpdate.slot ?? accessSlot);
             };
             const write = () => {
                 if (!accountUpdate) {
                     commit();
                     return;
                 }
-                const access = store.get(accessSlot);
+                const access = store.get(accountUpdate.slot ?? accessSlot);
                 access.onsuccess = () => {
                     if (JSON.stringify(access.result ?? null) === JSON.stringify(accountUpdate.expected)) commit();
                     else {
@@ -457,6 +480,7 @@ export function folioStatus(folio, today = todayInChile()) {
 export async function validateCode(value) {
     const code = value.trim().toLowerCase().replaceAll('-', '');
     if (!/^[0-9a-f]{32}$/.test(code)) throw new Error('Ingresa un folio completo de 32 caracteres.');
-    const catalog = await read(publicSlot);
-    return folioStatus(catalog?.[await codeHash(code)]);
+    const [catalog, simpleCatalog] = await Promise.all([read(publicSlot), read(simplePublicSlot)]);
+    const hash = await codeHash(code);
+    return folioStatus(simpleCatalog?.[hash] ?? catalog?.[hash]);
 }

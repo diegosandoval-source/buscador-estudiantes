@@ -1,4 +1,4 @@
-import { validateCode } from './local-data.js?v=8';
+import { validateCode } from './local-data.js?v=12';
 import { validationLabels } from './validation-records.js?v=8';
 
 const form = document.getElementById('public-validation');

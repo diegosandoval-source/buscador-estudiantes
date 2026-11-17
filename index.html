@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="portal-local.css?v=9">
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
         integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous" defer></script>
-    <script type="module" src="portal-local.js?v=11"></script>
+    <script type="module" src="portal-local.js?v=12"></script>
 </head>
 <body>
     <header class="app-header">
@@ -106,21 +106,6 @@
             <p id="workspace-status" class="message" role="status"></p>
         </section>
     </main>
-
-    <dialog id="access-update-dialog" aria-labelledby="access-update-title">
-        <form id="access-update-form" class="stack">
-            <h2 id="access-update-title">Conservar las fichas guardadas</h2>
-            <p class="muted">Este navegador ya tiene un acceso anterior. Ingresa su contraseña una vez para pasar al acceso admin con clave 1234.</p>
-            <label>Contraseña anterior
-                <input name="previousPassword" type="password" autocomplete="current-password" required maxlength="256">
-            </label>
-            <p id="access-update-status" class="message" role="status"></p>
-            <div class="actions">
-                <button type="submit" class="button primary">Conservar fichas y entrar</button>
-                <button type="button" class="button close">Volver</button>
-            </div>
-        </form>
-    </dialog>
 
     <dialog id="password-dialog" aria-labelledby="password-title">
         <form id="password-change" class="stack">
