@@ -3,207 +3,163 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Demostración de un buscador de estudiantes con datos ficticios.">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
     <title>Buscador de estudiantes</title>
-    <style>
-        :root {
-            color-scheme: light;
-            font-family: "Segoe UI", system-ui, sans-serif;
-            color: #162724;
-            background: #f4f6f1;
-            --green: #1d5c4c;
-            --muted: #4d605b;
-            --line: #d9e3db;
-        }
-
-        * { box-sizing: border-box; }
-        body { margin: 0; }
-
-        main {
-            max-width: 54rem;
-            margin: 0 auto;
-            padding: clamp(2rem, 8vw, 5rem) clamp(1rem, 5vw, 3rem) 3rem;
-        }
-
-        .intro {
-            padding: clamp(1.5rem, 6vw, 3rem);
-            border-radius: 1.25rem;
-            background: #163b33;
-            color: #fff;
-        }
-
-        .demo {
-            display: inline-block;
-            margin: 0 0 1rem;
-            padding: .3rem .7rem;
-            border: 1px solid #77988b;
-            border-radius: 2rem;
-            color: #e1eee7;
-            font-size: .875rem;
-        }
-
-        h1 {
-            margin: 0;
-            max-width: 16ch;
-            font-size: clamp(2rem, 7vw, 3.75rem);
-            line-height: 1.02;
-            letter-spacing: -.045em;
-        }
-
-        .intro p:last-child {
-            margin: 1rem 0 0;
-            color: #e1eee7;
-            line-height: 1.5;
-        }
-
-        .search {
-            margin-top: 1.25rem;
-            padding: clamp(1rem, 4vw, 1.75rem);
-            border: 1px solid var(--line);
-            border-radius: 1.25rem;
-            background: #fff;
-        }
-
-        label { display: block; font-weight: 650; }
-
-        input {
-            display: block;
-            width: 100%;
-            margin-top: .5rem;
-            padding: .85rem 1rem;
-            border: 1px solid #829a90;
-            border-radius: .65rem;
-            background: #fff;
-            color: inherit;
-            font: inherit;
-        }
-
-        input::placeholder { color: #596b65; }
-
-        :focus-visible {
-            outline: 3px solid #207c67;
-            outline-offset: 3px;
-        }
-
-        #resultados-estado {
-            margin: 1rem 0 .35rem;
-            color: var(--muted);
-            font-size: .875rem;
-            line-height: 1.5;
-        }
-
-        .students {
-            margin: 0;
-            padding: 0;
-            list-style: none;
-        }
-
-        .students > li {
-            border-top: 1px solid var(--line);
-        }
-
-        .student {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding: 1rem .25rem;
-        }
-
-        .initials {
-            display: grid;
-            place-items: center;
-            flex: 0 0 2.5rem;
-            height: 2.5rem;
-            border-radius: .65rem;
-            background: #e5f0eb;
-            color: var(--green);
-            font-size: .875rem;
-            font-weight: 700;
-        }
-
-        .name { flex: 1; overflow-wrap: anywhere; }
-        .course { color: var(--muted); font-size: .875rem; }
-
-        @media (max-width: 28rem) {
-            .student {
-                display: grid;
-                grid-template-columns: 2.5rem 1fr;
-                gap: .2rem .75rem;
-            }
-
-            .initials { grid-row: span 2; }
-        }
-    </style>
+    <link rel="stylesheet" href="portal-local.css">
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
+        integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous" defer></script>
+    <script type="module" src="portal-local.js"></script>
 </head>
 <body>
+    <header class="app-header">
+        <div class="brand">
+            <span class="brand-mark" aria-hidden="true">BE</span>
+            <strong>Buscador de estudiantes</strong>
+        </div>
+        <nav aria-label="Menú principal">
+            <button id="open-validation" class="button" type="button">Validar folio</button>
+            <button id="logout" class="button" type="button" hidden>Cerrar sesión</button>
+        </nav>
+    </header>
     <main>
-        <header class="intro">
-            <p class="demo">Datos ficticios</p>
-            <h1>Buscador de estudiantes</h1>
-            <p>Encuentra estudiantes de ejemplo por nombre, apellido o curso.</p>
-        </header>
+        <section id="entry" class="entry">
+            <div class="entry-info">
+                <h1>Administración de estudiantes</h1>
+                <p>Carga tu Excel, revisa las fichas y genera folios de validación.</p>
+                <p class="local-note">Las fichas y los folios se guardan en este navegador.</p>
+            </div>
+            <form id="login" class="panel stack" aria-describedby="login-hint">
+                <h2>Iniciar sesión</h2>
+                <p id="login-hint" class="muted">Acceso de administrador.</p>
+                <label>Usuario
+                    <input name="username" value="admin" autocomplete="username" readonly>
+                </label>
+                <label>Contraseña
+                    <input name="password" type="password" autocomplete="current-password" required maxlength="256">
+                </label>
+                <label id="repeat-password" hidden>Repetir contraseña
+                    <input name="confirmation" type="password" autocomplete="new-password" maxlength="256">
+                </label>
+                <button id="reveal" class="button secondary" type="button" aria-pressed="false">Mostrar contraseña</button>
+                <button id="enter" class="button primary" type="submit" disabled>Entrar</button>
+                <p id="login-status" class="message" role="status"></p>
+                <noscript>Activa JavaScript para usar el portal.</noscript>
+            </form>
+        </section>
 
-        <section class="search" aria-label="Búsqueda de estudiantes">
-            <label for="consulta">Nombre, apellido o curso</label>
-            <input id="consulta" type="search" placeholder="Ej. Martín o 7° básico" autocomplete="off">
-            <p id="resultados-estado" role="status"></p>
-            <ul id="resultados" class="students" aria-label="Resultados"></ul>
-            <noscript>Activa JavaScript para usar el buscador.</noscript>
+        <section id="workspace" class="stack workspace" hidden>
+            <div class="workspace-heading">
+                <div><p class="eyebrow">Administración</p><h1>Estudiantes</h1></div>
+                <button id="new-student" class="button primary" type="button">Nuevo estudiante</button>
+            </div>
+            <section class="panel stack" aria-labelledby="import-title">
+                <div>
+                    <h2 id="import-title">Cargar Excel</h2>
+                    <p class="muted">Selecciona un Excel con las columnas Nombre y Curso o el archivo del buscador local. También puedes importar su respaldo JSON.</p>
+                </div>
+                <form id="import" class="upload-form">
+                    <label>Archivo de estudiantes
+                        <input name="file" type="file" accept=".xlsx,.xls,.json" required>
+                    </label>
+                    <button type="submit" class="button secondary">Revisar archivo</button>
+                </form>
+                <div id="import-review" class="review stack" hidden>
+                    <p id="import-summary" role="status"></p>
+                    <p id="import-notes" class="muted"></p>
+                    <div class="actions">
+                        <button id="import-commit" class="button primary" type="button">Guardar estudiantes</button>
+                        <button id="import-cancel" class="button" type="button">Cancelar</button>
+                    </div>
+                </div>
+                <p id="import-status" class="message" role="status"></p>
+            </section>
+
+            <section class="panel stack">
+                <div>
+                    <h2>Buscar estudiantes</h2>
+                    <p id="student-count" class="muted"></p>
+                </div>
+                <label>Nombre, curso o apoderado
+                    <input id="search" type="search" placeholder="Escribe para buscar" autocomplete="off" maxlength="160">
+                </label>
+                <p id="search-status" class="muted" role="status"></p>
+                <ul id="results" class="list" aria-label="Resultados de búsqueda"></ul>
+            </section>
+            <section id="student-card" class="panel stack" hidden>
+                <div><h2 id="student-name"></h2><p id="student-course" class="muted"></p></div>
+                <div id="contact-cards" class="contact-cards"></div>
+                <div class="actions">
+                    <button id="edit-student" class="button secondary" type="button">Editar ficha</button>
+                    <button id="copy-student" class="button secondary" type="button">Copiar ficha</button>
+                    <button id="make-folio" class="button primary" type="button">Generar folio</button>
+                    <button id="remove-student" class="button danger" type="button">Eliminar</button>
+                </div>
+            </section>
+            <details class="panel">
+                <summary>Folios generados</summary>
+                <p class="muted">Solo se muestra el estado a quien consulta por folio.</p>
+                <ul id="folio-list" class="list" aria-label="Folios generados"></ul>
+            </details>
+            <p id="workspace-status" class="message" role="status"></p>
         </section>
     </main>
 
-    <script>
-        const students = [
-            { name: 'Amanda Ríos', course: '7° básico A' },
-            { name: 'Emilia Vega', course: '8° básico B' },
-            { name: 'Martín Soto', course: '7° básico A' },
-            { name: 'Tomás Luna', course: '1° medio A' }
-        ];
-
-        const search = document.getElementById('consulta');
-        const results = document.getElementById('resultados');
-        const status = document.getElementById('resultados-estado');
-
-        function normalize(value) {
-            return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-        }
-
-        function render() {
-            const query = normalize(search.value.trim());
-            const terms = query ? query.split(/\s+/) : [];
-            const matches = students.filter(({ name, course }) => {
-                const candidate = normalize(`${name} ${course}`);
-                return terms.every((term) => candidate.includes(term));
-            });
-
-            results.replaceChildren(...matches.map(({ name, course }) => {
-                const item = document.createElement('li');
-                const row = document.createElement('div');
-                const initials = document.createElement('span');
-                const nameField = document.createElement('strong');
-                const courseField = document.createElement('span');
-
-                row.className = 'student';
-                initials.className = 'initials';
-                initials.setAttribute('aria-hidden', 'true');
-                initials.textContent = name.split(' ').map((part) => part[0]).join('');
-                nameField.className = 'name';
-                nameField.textContent = name;
-                courseField.className = 'course';
-                courseField.textContent = course;
-
-                row.append(initials, nameField, courseField);
-                item.append(row);
-                return item;
-            }));
-
-            status.textContent = matches.length === 0
-                ? 'No se encontraron estudiantes.'
-                : `${matches.length} ${matches.length === 1 ? 'estudiante' : 'estudiantes'}`;
-        }
-
-        search.addEventListener('input', render);
-        render();
-    </script>
+    <dialog id="validation-dialog" aria-labelledby="validation-title">
+        <form id="validation" class="stack">
+            <h2 id="validation-title">Validar folio</h2>
+            <p class="muted">Consulta los folios generados en este navegador.</p>
+            <label>Folio
+                <input name="code" required maxlength="40" spellcheck="false" autocomplete="off" autocapitalize="none">
+            </label>
+            <p id="validation-status" class="message" role="status"></p>
+            <div class="actions">
+                <button type="submit" class="button primary">Validar</button>
+                <button type="button" class="button close">Cerrar</button>
+            </div>
+        </form>
+    </dialog>
+    <dialog id="student-dialog" aria-labelledby="student-title">
+        <form id="student-form" class="stack">
+            <h2 id="student-title">Ficha del estudiante</h2>
+            <label>Nombre completo <input name="name" required maxlength="200"></label>
+            <label>Curso <input name="course" required maxlength="80"></label>
+            <fieldset>
+                <legend>Apoderado académico</legend>
+                <label>Nombre <input name="academic_name" maxlength="200"></label>
+                <label>Teléfono <input name="academic_phone" type="tel" maxlength="80"></label>
+                <label>Correo <input name="academic_email" type="email" maxlength="254"></label>
+            </fieldset>
+            <fieldset>
+                <legend>Apoderado de cuentas</legend>
+                <label class="check"><input id="same-contact" type="checkbox"> Mismo apoderado</label>
+                <label>Nombre <input name="financial_name" maxlength="200"></label>
+                <label>Teléfono <input name="financial_phone" type="tel" maxlength="80"></label>
+                <label>Correo <input name="financial_email" type="email" maxlength="254"></label>
+            </fieldset>
+            <p id="student-status" class="message" role="status"></p>
+            <div class="actions">
+                <button type="submit" class="button primary">Guardar</button>
+                <button type="button" class="button close">Cancelar</button>
+            </div>
+        </form>
+    </dialog>
+    <dialog id="folio-dialog" aria-labelledby="folio-title">
+        <form id="folio-form" class="stack">
+            <h2 id="folio-title">Folio de validación</h2>
+            <label>Vigente hasta <input name="expiresOn" type="date"></label>
+            <label class="check"><input name="published" type="checkbox"> Autorizar consulta del estado</label>
+            <label class="check"><input name="annulled" type="checkbox"> Anular folio</label>
+            <div id="folio-result" class="stack" hidden>
+                <label>Folio <input id="folio-code" readonly></label>
+                <button id="copy-folio" class="button secondary" type="button">Copiar folio</button>
+            </div>
+            <p id="folio-status" class="message" role="status"></p>
+            <div class="actions">
+                <button type="submit" class="button primary">Guardar folio</button>
+                <button type="button" class="button close">Cerrar</button>
+            </div>
+        </form>
+    </dialog>
 </body>
 </html>
