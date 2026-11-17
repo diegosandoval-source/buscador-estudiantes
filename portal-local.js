@@ -1,12 +1,12 @@
-import { activateAccount, changeInitialPassword, folioStatus, hasAccessFile, newCode, openAccount,
-    saveVault, todayInChile, validateCode } from './local-data.js?v=8';
+import { changeInitialPassword, folioStatus, newCode, openAccount, updateAdminAccess,
+    saveVault, todayInChile, validateCode } from './local-data.js?v=11';
 import { normalizeCourse, normalized, readRoster } from './student-import.js?v=8';
 import { displayRut, normalizeRut, resolveStudent, studentMatches, validationFromForm, validationLabels } from './validation-records.js?v=8';
 
 const get = (id) => document.getElementById(id);
 const login = get('login');
-const accessForm = get('access-form');
-const accessDialog = get('access-dialog');
+const accessUpdateForm = get('access-update-form');
+const accessUpdateDialog = get('access-update-dialog');
 const passwordForm = get('password-change');
 const passwordDialog = get('password-dialog');
 const recordForm = get('record-form');
@@ -26,7 +26,7 @@ const statusText = {
 };
 
 let session;
-let activating = false;
+let updatingAccess = false;
 let pendingPasswordChange;
 let changingPassword = false;
 let saving = false;
@@ -118,6 +118,12 @@ function clearLoginPassword() {
 }
 
 function completeLogin(result) {
+    if (result.accessUpdate) {
+        accessUpdateForm.reset();
+        showMessage('access-update-status', '');
+        accessUpdateDialog.showModal();
+        return;
+    }
     if (result.passwordChange) {
         pendingPasswordChange = result.passwordChange;
         passwordForm.reset();
@@ -133,41 +139,28 @@ function credentials() {
 }
 
 handleSubmit(login, 'login-status', async () => {
-    if (!await hasAccessFile()) {
-        accessForm.reset();
-        showMessage('access-status', '');
-        accessDialog.showModal();
-        return;
-    }
     const account = credentials();
     clearLoginPassword();
     completeLogin(await openAccount(...account));
 });
 
-accessDialog.addEventListener('close', () => {
-    accessForm.reset();
-    clearLoginPassword();
+accessUpdateDialog.addEventListener('close', () => {
+    accessUpdateForm.reset();
 });
-accessDialog.addEventListener('cancel', (event) => {
-    if (activating) event.preventDefault();
+accessUpdateDialog.addEventListener('cancel', (event) => {
+    if (updatingAccess) event.preventDefault();
 });
 
-handleSubmit(accessForm, 'access-status', async () => {
-    const file = accessForm.elements.file.files[0];
-    if (!file) throw new Error('Selecciona el Excel de accesos.');
-    const back = accessForm.querySelector('.close');
-    activating = true;
+handleSubmit(accessUpdateForm, 'access-update-status', async () => {
+    const back = accessUpdateForm.querySelector('.close');
+    updatingAccess = true;
     back.disabled = true;
     try {
-        const result = await activateAccount(file, ...credentials());
-        accessDialog.close();
+        const result = await updateAdminAccess(accessUpdateForm.elements.previousPassword.value);
+        accessUpdateDialog.close();
         completeLogin(result);
-    } catch (error) {
-        if (!await hasAccessFile()) throw error;
-        accessDialog.close();
-        showMessage('login-status', error.message);
     } finally {
-        activating = false;
+        updatingAccess = false;
         back.disabled = false;
     }
 });
@@ -302,7 +295,7 @@ function renderResults() {
     get('empty-results').hidden = matches.length > 0;
     showMessage('empty-results-message', session.data.students.length
         ? 'No hay alumnos que coincidan con tu búsqueda.'
-        : 'Actualmente no existen alumnos registrados. Para comenzar, presiona el botón Cargar datos.');
+        : 'Actualmente no existen alumnos registrados. Para comenzar, presiona el botón Agregar validación.');
     const count = `${matches.length} ${matches.length === 1 ? 'resultado encontrado' : 'resultados encontrados'}`;
     showMessage('search-status', matches.length > 30 ? `${count}. Se muestran 30.` : count);
 }
@@ -467,7 +460,7 @@ function openRecord(student = null, record = null) {
     recordForm.elements.rut.disabled = !isAdmin();
     get('publish-validation').hidden = !isAdmin();
     recordForm.elements.published.disabled = !isAdmin();
-    showMessage('record-title', record ? 'Editar validación' : 'Cargar datos');
+    showMessage('record-title', record ? 'Editar validación' : 'Agregar validación');
     showMessage('record-status', '');
     recordForm.elements.issuedOn.value = record?.issuedOn || todayInChile();
     for (const key of ['code', 'type', 'expiresOn', 'state', 'notes']) {

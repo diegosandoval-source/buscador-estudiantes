@@ -3,6 +3,7 @@ const storeName = 'data';
 const vaultSlot = 'vault-v2';
 const publicSlot = 'public';
 const accessSlot = 'access-v2';
+const simpleAdminPassword = '1234';
 const academicFields = ['academic_name', 'academic_phone', 'academic_email'];
 const privateFields = ['financial_name', 'financial_phone', 'financial_email', 'rut'];
 const validationFields = ['id', 'studentId', 'code', 'type', 'issuedOn', 'expiresOn', 'state', 'notes'];
@@ -157,8 +158,59 @@ async function decryptData(key, envelope, scope) {
 
 export async function openAccount(username, password) {
     const accounts = await read(accessSlot);
-    if (!accounts) throw new Error('Primero carga el archivo de accesos de este navegador.');
+    if (username === 'admin' && password === simpleAdminPassword) {
+        if (accounts?.admin?.simpleAccess) return loadAccount(await authenticate(accounts, username, password));
+        if (accounts || await read(vaultSlot) || await read('vault')) return { accessUpdate: true };
+        return installSimpleAdmin();
+    }
+    if (!accounts) throw new Error('Usuario o contraseña incorrectos.');
     return finishSignIn(await authenticate(accounts, username, password));
+}
+
+async function wrapSimpleAdmin(material) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await deriveKey(simpleAdminPassword, salt);
+    const wrapped = await encryptData(key, material, 'cuenta:admin');
+    return {
+        salt: encodeBytes(salt), iv: encodeBytes(wrapped.iv), ciphertext: encodeBytes(wrapped.ciphertext),
+        passwordChanged: true, simpleAccess: true
+    };
+}
+
+async function installSimpleAdmin(previousPassword) {
+    const [accounts, envelope, legacy] = await Promise.all([read(accessSlot), read(vaultSlot), read('vault')]);
+    if (accounts?.admin?.simpleAccess) return loadAccount(await authenticate(accounts, 'admin', simpleAdminPassword));
+    let material;
+    let data = emptyData();
+    let recoveredLegacyRevision = envelope?.recoveredLegacyRevision ?? 0;
+    if (accounts) {
+        if (!previousPassword) return { accessUpdate: true };
+        const account = await authenticate(accounts, 'admin', previousPassword);
+        if (envelope) data = await readData(account, envelope);
+        material = account.material;
+    } else {
+        if (envelope) throw new Error('Las fichas anteriores necesitan su acceso original. Conserva los datos de este navegador.');
+        if (legacy) {
+            if (!previousPassword) return { accessUpdate: true };
+            const previous = await unlockLegacy(previousPassword, legacy);
+            data = { ...previous, validations: previous.validations ?? [] };
+            recoveredLegacyRevision = legacy.revision;
+        }
+        material = {
+            shared: encodeBytes(crypto.getRandomValues(new Uint8Array(32))),
+            private: encodeBytes(crypto.getRandomValues(new Uint8Array(32)))
+        };
+    }
+    const admin = await wrapSimpleAdmin(material);
+    const { username, sharedKey, privateKey } = await authenticate({ admin }, 'admin', simpleAdminPassword);
+    return { session: await saveVault({
+        username, sharedKey, privateKey, revision: envelope?.revision ?? 0, recoveredLegacyRevision,
+        canRecoverLegacy: Boolean(legacy && legacy.revision !== recoveredLegacyRevision), data
+    }, data, legacy?.revision ?? 0, { expected: accounts, updated: { ...accounts, admin } }) };
+}
+
+export async function updateAdminAccess(previousPassword) {
+    return installSimpleAdmin(previousPassword);
 }
 
 function finishSignIn({ original, material, ...account }) {
@@ -305,7 +357,7 @@ function withAcademicChanges(previous, submitted) {
     ];
 }
 
-export async function saveVault(session, data, expectedLegacyRevision) {
+export async function saveVault(session, data, expectedLegacyRevision, accountUpdate) {
     const admin = Boolean(session.privateKey);
     const revision = session.revision + 1;
     const submitted = admin ? data.students : withAcademicChanges(session.data.students, data.students);
@@ -342,10 +394,25 @@ export async function saveVault(session, data, expectedLegacyRevision) {
                 tx.abort();
                 return;
             }
-            const write = () => {
+            const commit = () => {
                 store.put({ shared, private: admin ? sealedPrivate : current.result?.private ?? null, revision,
                     recoveredLegacyRevision: session.recoveredLegacyRevision }, vaultSlot);
                 if (admin) store.put(Object.fromEntries(published), publicSlot);
+                if (accountUpdate) store.put(accountUpdate.updated, accessSlot);
+            };
+            const write = () => {
+                if (!accountUpdate) {
+                    commit();
+                    return;
+                }
+                const access = store.get(accessSlot);
+                access.onsuccess = () => {
+                    if (JSON.stringify(access.result ?? null) === JSON.stringify(accountUpdate.expected)) commit();
+                    else {
+                        changed = true;
+                        tx.abort();
+                    }
+                };
             };
             if (expectedLegacyRevision === undefined) {
                 write();
