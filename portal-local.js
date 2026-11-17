@@ -212,6 +212,7 @@ get('logout').addEventListener('click', () => {
     validationForm.reset();
     login.reset();
     search.value = '';
+    get('search-results').hidden = true;
     for (const id of ['results', 'contact-cards', 'student-history']) get(id).replaceChildren();
     for (const id of ['student-name', 'student-course', 'student-rut', 'connected-user', 'search-status', 'workspace-status',
         'import-status', 'import-notes', 'student-status', 'folio-status', 'validation-status']) showMessage(id, '');
@@ -287,8 +288,15 @@ function asResult(record, history) {
 
 function renderResults() {
     if (!session) return;
+    const query = search.value.trim();
+    get('search-results').hidden = !query;
+    if (!query) {
+        get('results').replaceChildren();
+        showMessage('search-status', '');
+        return;
+    }
     const byStudent = histories();
-    const matches = session.data.students.filter((record) => studentMatches(record, byStudent.get(record.id) ?? [], search.value));
+    const matches = session.data.students.filter((record) => studentMatches(record, byStudent.get(record.id) ?? [], query));
     matches.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
     get('results').replaceChildren(...matches.slice(0, 30).map((record) => asResult(record, byStudent.get(record.id) ?? [])));
     get('empty-results').hidden = matches.length > 0;
