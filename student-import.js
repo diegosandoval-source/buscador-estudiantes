@@ -15,12 +15,14 @@ export function normalized(value) {
 }
 
 export function normalizeCourse(value) {
-    const compact = normalized(value).replace(/[\s.°º-]/g, '');
-    const medium = compact.includes('MEDIO') || compact.includes('MEDIA') || compact.includes('EM')
-        ? compact.match(/([1-4])(?:EM|MEDIO|MEDIA)?([A-Z])$/) : null;
-    if (medium) return `${medium[1]}EM-${medium[2]}`;
-    const basic = compact.match(/([1-8])(?:BASICO|BASICA)?([A-Z])$/);
-    return basic ? `${basic[1]}-${basic[2]}` : clean(value);
+    let compact = normalized(value).replace(/[^A-Z0-9]/g, '');
+    const romans = { I: '1', II: '2', III: '3', IV: '4' };
+    compact = compact.replace(/^(IV|III|II|I)(?=EM|MEDIO|MEDIA)/, (match) => romans[match]);
+    const course = compact.match(/^([1-8])(?:ER|ERO|DO|RA|TO|VO|NO)?(BASICO|BASICA|MEDIO|MEDIA|EM)?([A-Z])$/);
+    if (!course) return clean(value);
+    const medium = ['MEDIO', 'MEDIA', 'EM'].includes(course[2]);
+    if (medium && Number(course[1]) > 4) return clean(value);
+    return `${course[1]}${medium ? 'EM' : ''}-${course[3]}`;
 }
 
 function rosterFromBackup(text) {

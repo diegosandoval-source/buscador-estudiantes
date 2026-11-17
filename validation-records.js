@@ -1,4 +1,4 @@
-import { normalizeCourse, normalized } from './student-import.js?v=8';
+import { normalizeCourse, normalized } from './student-import.js?v=15';
 
 export const validationLabels = { vigente: 'Vigente', vencido: 'Vencido', anulado: 'Anulado', no_existe: 'Sin folio autorizado' };
 

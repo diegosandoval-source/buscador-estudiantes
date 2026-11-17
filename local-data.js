@@ -7,6 +7,8 @@ const simpleAccessSlot = 'simple-access-v1';
 const simpleVaultSlot = 'simple-vault-v1';
 const simplePublicSlot = 'simple-public-v1';
 const simpleAdminPassword = '1234';
+const managedAccessSlot = 'accounts-v3';
+const temporarySlot = 'temporary-passwords-v3';
 const academicFields = ['academic_name', 'academic_phone', 'academic_email'];
 const privateFields = ['financial_name', 'financial_phone', 'financial_email', 'rut'];
 const validationFields = ['id', 'studentId', 'code', 'type', 'issuedOn', 'expiresOn', 'state', 'notes'];
@@ -137,7 +139,8 @@ async function authenticate(accounts, username, password) {
 }
 
 function emptyData() {
-    return { version: 1, students: [], tutors: [], folios: [], validations: [] };
+    return { version: 1, students: [], tutors: [], folios: [], validations: [],
+        referenceStudents: [], referenceMeta: null, comparisons: [], comparisonHistory: [], audit: [] };
 }
 
 async function encryptData(key, data, scope) {
@@ -160,13 +163,154 @@ async function decryptData(key, envelope, scope) {
 }
 
 export async function openAccount(username, password) {
-    const accounts = await read(accessSlot);
-    if (username === 'admin' && password === simpleAdminPassword) {
-        if (accounts?.admin?.simpleAccess) return loadAccount(await authenticate(accounts, username, password));
-        return openSimpleAdmin();
+    const bundle = await managedAccounts();
+    const stored = bundle.accounts[username];
+    if (!stored?.active) throw new Error('Usuario o contraseña incorrectos, o cuenta desactivada.');
+    const account = await authenticate(bundle.accounts, username, password);
+    const managed = {
+        ...account, userId: stored.id, role: stored.role, managed: true,
+        authCiphertext: stored.ciphertext, vaultSlot: bundle.vaultSlot, publicSlot: bundle.publicSlot,
+        adminMaterial: stored.role === 'admin' ? account.material : null
+    };
+    if (stored.role !== 'admin') managed.privateKey = null;
+    const result = await finishSignIn(managed);
+    if (result.session) await checkSession(result.session);
+    return result;
+}
+
+async function wrapAccount(username, password, material) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const wrapped = await encryptData(await deriveKey(password, salt), material, 'cuenta:' + username);
+    return { salt: encodeBytes(salt), iv: encodeBytes(wrapped.iv), ciphertext: encodeBytes(wrapped.ciphertext) };
+}
+
+function temporaryPassword() {
+    return encodeBytes(crypto.getRandomValues(new Uint8Array(18))).replaceAll('+', '-').replaceAll('/', '_');
+}
+
+async function managedAccounts() {
+    const current = await read(managedAccessSlot);
+    if (current) return current;
+    const [simple, previous] = await Promise.all([read(simpleAccessSlot), read(accessSlot)]);
+    const existing = simple ?? (previous?.admin?.simpleAccess ? previous : null);
+    const sourceSlot = simple ? simpleAccessSlot : existing ? accessSlot : null;
+    const material = existing ? (await authenticate(existing, 'admin', simpleAdminPassword)).material : {
+        shared: encodeBytes(crypto.getRandomValues(new Uint8Array(32))),
+        private: encodeBytes(crypto.getRandomValues(new Uint8Array(32)))
+    };
+    const consultationPassword = temporaryPassword();
+    const initial = [
+        ['admin', '0246', 'admin'], ['enfermeria', '1234', 'consulta'], ['consulta', consultationPassword, 'consulta']
+    ];
+    const accounts = {};
+    for (const [username, password, role] of initial) {
+        accounts[username] = { ...await wrapAccount(username, password, role === 'admin' ? material : { shared: material.shared }),
+            id: crypto.randomUUID(), role, active: true, passwordChanged: false };
     }
-    if (!accounts) throw new Error('Usuario o contraseña incorrectos.');
-    return finishSignIn(await authenticate(accounts, username, password));
+    const bundle = { version: 3, revision: 1, accounts,
+        vaultSlot: !simple && existing ? vaultSlot : simpleVaultSlot,
+        publicSlot: !simple && existing ? publicSlot : simplePublicSlot };
+    const secrets = await encryptData(await importDataKey(material.private), {
+        admin: '0246', enfermeria: '1234', consulta: consultationPassword
+    }, 'cuentas:temporales:v3');
+    const db = await database();
+    await new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const request = store.get(managedAccessSlot);
+        request.onsuccess = () => {
+            if (request.result) return;
+            const commit = () => {
+                store.put(bundle, managedAccessSlot);
+                store.put(secrets, temporarySlot);
+                if (sourceSlot) store.delete(sourceSlot);
+            };
+            if (!sourceSlot) { commit(); return; }
+            const source = store.get(sourceSlot);
+            source.onsuccess = () => {
+                if (source.result?.admin?.ciphertext !== existing.admin.ciphertext) tx.abort();
+                else commit();
+            };
+        };
+        tx.oncomplete = resolve;
+        tx.onabort = () => reject(new Error('No se pudieron preparar las cuentas de este navegador.'));
+    });
+    return read(managedAccessSlot);
+}
+
+function currentUser(bundle, session) {
+    const user = bundle?.accounts?.[session.username];
+    return user && user.active && user.id === session.userId && user.ciphertext === session.authCiphertext
+        && user.role === session.role ? user : null;
+}
+
+export async function checkSession(session, admin = false) {
+    const bundle = await read(managedAccessSlot);
+    if (bundle && (!session.managed || !currentUser(bundle, session))) {
+        throw new Error('Tu acceso cambió o fue desactivado. Vuelve a iniciar sesión.');
+    }
+    if (admin && (!session.privateKey || session.role === 'consulta')) {
+        throw new Error('Tu cuenta es de solo lectura. Esta operación requiere Administración.');
+    }
+    return bundle;
+}
+
+export async function refreshSession(session) {
+    await checkSession(session);
+    const envelope = await read(session.vaultSlot ?? vaultSlot);
+    if (!envelope || envelope.revision === session.revision) return session;
+    return { ...session, revision: envelope.revision, data: await readData(session, envelope) };
+}
+
+export async function listUsers(session) {
+    const bundle = await checkSession(session, true);
+    const secrets = await decryptData(session.privateKey, await read(temporarySlot), 'cuentas:temporales:v3');
+    return Object.entries(bundle.accounts).map(([username, user]) => ({
+        id: user.id, username, role: user.role, active: user.active, needsPassword: !user.passwordChanged,
+        temporaryPassword: user.passwordChanged ? '' : secrets[username] ?? ''
+    })).sort((a, b) => a.username.localeCompare(b.username, 'es'));
+}
+
+export async function manageUser(session, changes) {
+    const bundle = await checkSession(session, true);
+    const username = String(changes.username ?? '').trim().toLowerCase();
+    if (!/^[a-z][a-z0-9_.-]{2,31}$/.test(username)) throw new Error('Usa un nombre de usuario de 3 a 32 caracteres.');
+    if (!['admin', 'consulta'].includes(changes.role)) throw new Error('Selecciona un rol válido.');
+    const found = Object.entries(bundle.accounts).find(([, user]) => user.id === changes.id);
+    const previousName = found?.[0];
+    const previous = found?.[1];
+    if (changes.id && !previous) throw new Error('La cuenta ya no está disponible.');
+    if (Object.hasOwn(bundle.accounts, username) && username !== previousName) throw new Error('Ese nombre de usuario ya está ocupado.');
+    if (previous?.id === session.userId && (username !== previousName || changes.role !== 'admin'
+        || changes.active === false || changes.reset)) {
+        throw new Error('Otra cuenta administradora debe cambiar tu propio acceso.');
+    }
+    const reset = !previous || changes.reset || username !== previousName || changes.role !== previous.role;
+    const password = reset ? temporaryPassword() : '';
+    const wrapped = reset ? await wrapAccount(username, password, changes.role === 'admin'
+        ? session.adminMaterial : { shared: session.adminMaterial.shared }) : previous;
+    const user = { ...wrapped, id: previous?.id ?? crypto.randomUUID(), role: changes.role,
+        active: changes.active !== false, passwordChanged: reset ? false : previous.passwordChanged };
+    const accounts = { ...bundle.accounts };
+    if (previousName) delete accounts[previousName];
+    accounts[username] = user;
+    if (!Object.values(accounts).some((entry) => entry.active && entry.role === 'admin')) {
+        throw new Error('Debe quedar al menos una cuenta administradora activa.');
+    }
+    const secrets = await decryptData(session.privateKey, await read(temporarySlot), 'cuentas:temporales:v3');
+    if (previousName && previousName !== username) delete secrets[previousName];
+    if (password) secrets[username] = password;
+    const sealedSecrets = await encryptData(session.privateKey, secrets, 'cuentas:temporales:v3');
+    const audit = [...(session.data.audit ?? []), {
+        id: crypto.randomUUID(), at: new Date().toISOString(), actor: session.username,
+        action: previous ? reset ? 'cuenta.restablecer' : 'cuenta.actualizar' : 'cuenta.crear',
+        subject: username, details: { role: user.role, active: user.active }
+    }];
+    const next = await saveVault(session, { ...session.data, audit }, undefined, {
+        slot: managedAccessSlot, expected: bundle, updated: { ...bundle, accounts, revision: bundle.revision + 1 },
+        secrets: sealedSecrets
+    });
+    return { session: next, username, password };
 }
 
 async function openSimpleAdmin() {
@@ -250,24 +394,28 @@ export async function changeInitialPassword(pending, password) {
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const key = await deriveKey(password, salt);
     const wrapped = await encryptData(key, material, 'cuenta:' + account.username);
-    const updated = { salt: encodeBytes(salt), iv: encodeBytes(wrapped.iv),
+    const updated = { ...original, salt: encodeBytes(salt), iv: encodeBytes(wrapped.iv),
         ciphertext: encodeBytes(wrapped.ciphertext), passwordChanged: true };
     const db = await database();
     await new Promise((resolve, reject) => {
         const tx = db.transaction(storeName, 'readwrite');
         const store = tx.objectStore(storeName);
-        const current = store.get(accessSlot);
+        const slot = account.managed ? managedAccessSlot : accessSlot;
+        const current = store.get(slot);
         current.onsuccess = () => {
-            if (current.result?.[account.username]?.ciphertext !== original.ciphertext) {
+            const accounts = account.managed ? current.result?.accounts : current.result;
+            if (accounts?.[account.username]?.ciphertext !== original.ciphertext
+                || account.managed && !accounts[account.username].active) {
                 tx.abort();
                 return;
             }
-            store.put({ ...current.result, [account.username]: updated }, accessSlot);
+            const changed = { ...accounts, [account.username]: updated };
+            store.put(account.managed ? { ...current.result, accounts: changed, revision: current.result.revision + 1 } : changed, slot);
         };
         tx.oncomplete = resolve;
         tx.onabort = () => reject(new Error('No se pudo actualizar la contraseña. Vuelve a iniciar sesión.'));
     });
-    return loadAccount(account);
+    return loadAccount({ ...account, authCiphertext: updated.ciphertext });
 }
 
 async function readData(account, envelope) {
@@ -282,11 +430,18 @@ async function readData(account, envelope) {
         tutors: shared.tutors, folios: privateData?.folios ?? [],
         validations: (shared.validations ?? []).map((record) => ({
             ...record, ...privateData?.publications?.[record.id]
-        }))
+        })),
+        referenceStudents: privateData?.referenceStudents ?? [], referenceMeta: shared.referenceMeta ?? null,
+        comparisons: (shared.comparisons ?? []).map((record) => ({
+            ...record, fields: record.fields.map((field) => field.key === 'rut' && privateData?.comparisonRuts?.[record.id]
+                ? { ...field, ...privateData.comparisonRuts[record.id] } : field)
+        })),
+        comparisonHistory: privateData?.comparisonHistory ?? [], audit: privateData?.audit ?? []
     };
 }
 
 async function loadAccount(account) {
+    await checkSession(account);
     const [envelope, legacy] = await Promise.all([read(account.vaultSlot ?? vaultSlot), read('vault')]);
     const recoveredLegacyRevision = envelope?.recoveredLegacyRevision ?? 0;
     const active = { ...account, recoveredLegacyRevision, canRecoverLegacy: Boolean(
@@ -296,6 +451,7 @@ async function loadAccount(account) {
         return { session: { ...active, revision: envelope.revision, data: await readData(account, envelope) } };
     }
     const data = emptyData();
+    if (!account.privateKey) return { session: { ...active, revision: 0, data } };
     return { session: await saveVault({ ...active, revision: 0, data }, data, legacy?.revision ?? 0) };
 }
 
@@ -336,6 +492,7 @@ export async function migrateLegacy(session, password) {
 }
 
 export async function exportEncryptedBackup(session) {
+    await checkSession(session, true);
     if (!session.privateKey) throw new Error('El respaldo está disponible para Administración.');
     const envelope = await read(session.vaultSlot ?? vaultSlot);
     const pack = (section) => section ? { iv: encodeBytes(section.iv), ciphertext: encodeBytes(section.ciphertext) } : null;
@@ -367,34 +524,39 @@ function pick(record, keys) {
     return Object.fromEntries(keys.map((key) => [key, record[key] ?? '']));
 }
 
-function withAcademicChanges(previous, submitted) {
-    const previousIds = new Set(previous.map((record) => record.id));
-    const updates = new Map(submitted.map((record) => [record.id, record]));
-    return [
-        ...previous.map((record) => ({
-            ...record, ...pick(updates.get(record.id) ?? record, academicFields)
-        })),
-        ...submitted.filter((record) => !previousIds.has(record.id))
-    ];
-}
-
 export async function saveVault(session, data, expectedLegacyRevision, accountUpdate) {
+    await checkSession(session, true);
     const admin = Boolean(session.privateKey);
     const storageSlot = session.vaultSlot ?? vaultSlot;
     const publicationSlot = session.publicSlot ?? publicSlot;
     const revision = session.revision + 1;
-    const submitted = admin ? data.students : withAcademicChanges(session.data.students, data.students);
-    const students = submitted.map((student) => pick(student, ['id', 'name', 'course', 'given_names', 'family_names', ...academicFields]));
-    const tutors = admin ? data.tutors : session.data.tutors;
+    const submitted = data.students;
+    const students = submitted.map((student) => pick(student, [
+        'id', 'name', 'course', 'given_names', 'family_names', 'tutor', 'sourceConflict', 'sourceRow', ...academicFields
+    ]));
+    const tutors = data.tutors;
     const studentIds = new Set(students.map(({ id }) => id));
-    const existingIds = new Set(session.data.validations.map(({ id }) => id));
-    const proposed = admin ? data.validations : [...session.data.validations,
-        ...data.validations.filter(({ id }) => !existingIds.has(id))];
+    const proposed = data.validations;
     const validations = proposed.filter(({ studentId }) => studentIds.has(studentId)).map((record) => pick(record, validationFields));
-    const shared = await encryptData(session.sharedKey, { students, tutors, validations }, 'fichas:v2');
+    const comparisons = (data.comparisons ?? []).filter(({ studentId }) => studentIds.has(studentId));
+    const sharedComparisons = comparisons.map((record) => ({
+        ...record, fields: record.fields.map((field) => field.key === 'rut' ? {
+            ...field, reference: field.reference ? 'Informado' : 'Sin dato',
+            submitted: field.reference && field.submitted ? field.different ? 'Diferente' : 'Coincide' : 'Sin dato'
+        } : field)
+    }));
+    const shared = await encryptData(session.sharedKey, {
+        students, tutors, validations, comparisons: sharedComparisons, referenceMeta: data.referenceMeta ?? null
+    }, 'fichas:v2');
     const privateData = admin ? {
-        financial: Object.fromEntries(submitted.map((record) => [record.id, pick(record, privateFields)])),
+        financial: Object.fromEntries(submitted.map((record) => [record.id, {
+            ...pick(record, privateFields), ...(Object.hasOwn(record, 'comparisonRut') ? { comparisonRut: record.comparisonRut } : {})
+        }])),
         folios: data.folios,
+        referenceStudents: data.referenceStudents ?? [], comparisonHistory: data.comparisonHistory ?? [], audit: data.audit ?? [],
+        comparisonRuts: Object.fromEntries(comparisons.map((record) => [
+            record.id, record.fields.find((field) => field.key === 'rut')
+        ])),
         publications: Object.fromEntries(data.validations.filter(({ studentId }) => studentIds.has(studentId))
             .map(({ id, published, publicCode }) => [id, { published: Boolean(published), publicCode: publicCode ?? '' }]))
     } : null;
@@ -411,17 +573,28 @@ export async function saveVault(session, data, expectedLegacyRevision, accountUp
         const store = tx.objectStore(storeName);
         const current = store.get(storageSlot);
         let changed = false;
+        let denied = false;
         current.onsuccess = () => {
             if ((current.result?.revision ?? 0) !== session.revision) {
                 changed = true;
                 tx.abort();
                 return;
             }
-            const commit = () => {
+            const commitWrites = () => {
                 store.put({ shared, private: admin ? sealedPrivate : current.result?.private ?? null, revision,
                     recoveredLegacyRevision: session.recoveredLegacyRevision }, storageSlot);
                 if (admin) store.put(Object.fromEntries(published), publicationSlot);
                 if (accountUpdate) store.put(accountUpdate.updated, accountUpdate.slot ?? accessSlot);
+                if (accountUpdate?.secrets) store.put(accountUpdate.secrets, temporarySlot);
+            };
+            const commit = () => {
+                const access = store.get(managedAccessSlot);
+                access.onsuccess = () => {
+                    if (access.result && (!currentUser(access.result, session) || session.role !== 'admin')) {
+                        denied = true;
+                        tx.abort();
+                    } else commitWrites();
+                };
             };
             const write = () => {
                 if (!accountUpdate) {
@@ -451,7 +624,7 @@ export async function saveVault(session, data, expectedLegacyRevision, accountUp
             };
         };
         tx.oncomplete = resolve;
-        tx.onabort = () => reject(new Error(changed
+        tx.onabort = () => reject(new Error(denied ? 'Tu acceso cambió. Vuelve a iniciar sesión.' : changed
             ? 'Los datos cambiaron en otra pestaña. Cierra sesión y vuelve a entrar.'
             : 'No se pudieron guardar los cambios en este navegador.'));
     });
