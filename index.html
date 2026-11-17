@@ -6,10 +6,10 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
     <title>Student Finder</title>
-    <link rel="stylesheet" href="portal-local.css?v=9">
+    <link rel="stylesheet" href="portal-local.css?v=13">
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
         integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous" defer></script>
-    <script type="module" src="portal-local.js?v=12"></script>
+    <script type="module" src="portal-local.js?v=13"></script>
 </head>
 <body>
     <header class="app-header">
@@ -76,12 +76,13 @@
                 <label class="search-field"><span id="search-label">Nombre, apellido, curso o folio</span>
                     <span class="search-input">
                         <span class="brand-lens" aria-hidden="true"></span>
-                        <input id="search" type="search" placeholder="Escribe para buscar" autocomplete="off" maxlength="160">
+                        <input id="search" type="search" placeholder="Escribe para buscar" autocomplete="off" maxlength="160" aria-describedby="search-keyboard">
                     </span>
                 </label>
                 <p id="import-status" class="message" role="status" aria-atomic="true"></p>
                 <p id="import-notes" class="muted import-notes"></p>
                 <div id="search-results" class="stack" hidden>
+                    <p id="search-keyboard" class="muted keyboard-hint" hidden>Usa ↑ y ↓ para elegir un estudiante y Enter para abrir su ficha.</p>
                     <p id="search-status" class="result-count" role="status"></p>
                     <div id="empty-results" class="empty-results" hidden>
                         <span class="empty-icon" aria-hidden="true"><span class="brand-lens"></span></span>
@@ -91,7 +92,7 @@
                 </div>
             </section>
             <section id="student-card" class="panel stack student-card" hidden>
-                <div><h2 id="student-name"></h2><p id="student-course" class="muted"></p><p id="student-rut" class="muted" hidden></p></div>
+                <div><h2 id="student-name" tabindex="-1"></h2><p id="student-course" class="muted"></p><p id="student-rut" class="muted" hidden></p></div>
                 <div id="contact-cards" class="contact-cards"></div>
                 <div class="actions">
                     <button id="edit-student" class="button secondary" type="button">Editar ficha</button>

@@ -212,6 +212,9 @@ a.button { display: inline-flex; align-items: center; text-decoration: none; }
 .search-input .brand-lens { position: absolute; top: calc(50% - .45rem); left: 1rem; color: #556883; pointer-events: none; }
 .search-field input { min-height: 55px; padding-left: 2.65rem; background: #fafbfd; font-size: 1.05rem; }
 .result-count { font-size: .87rem; font-weight: 700; color: var(--muted); }
+.keyboard-hint { font-size: .82rem; }
+#results li { padding-inline: .65rem; border-radius: .55rem; }
+#results li:focus-within { background: var(--tint); box-shadow: inset 3px 0 0 #315fa4; }
 .empty-results {
     display: grid;
     justify-items: center;

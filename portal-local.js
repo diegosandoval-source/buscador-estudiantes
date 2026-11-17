@@ -240,12 +240,14 @@ function asResult(record, history) {
         description.append(labels);
     }
     profile.append(avatar, description);
-    item.append(profile,
-        action('Ver detalle', () => {
-            selected = record.id;
-            renderStudent();
-            get('student-card').scrollIntoView({ block: 'nearest' });
-        }));
+    const openButton = action('Ver detalle', () => {
+        selected = record.id;
+        renderStudent();
+        get('student-name').focus({ preventScroll: true });
+        get('student-card').scrollIntoView({ block: 'nearest' });
+    });
+    openButton.className += ' result-open';
+    item.append(profile, openButton);
     return item;
 }
 
@@ -255,6 +257,7 @@ function renderResults() {
     get('search-results').hidden = !query;
     if (!query) {
         get('results').replaceChildren();
+        get('search-keyboard').hidden = true;
         showMessage('search-status', '');
         return;
     }
@@ -262,6 +265,7 @@ function renderResults() {
     const matches = session.data.students.filter((record) => studentMatches(record, byStudent.get(record.id) ?? [], query));
     matches.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
     get('results').replaceChildren(...matches.slice(0, 30).map((record) => asResult(record, byStudent.get(record.id) ?? [])));
+    get('search-keyboard').hidden = matches.length === 0;
     get('empty-results').hidden = matches.length > 0;
     showMessage('empty-results-message', session.data.students.length
         ? 'No hay alumnos que coincidan con tu búsqueda.'
@@ -330,6 +334,30 @@ function render() {
 }
 
 search.addEventListener('input', renderResults);
+
+function navigateResults(event) {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing) return;
+    if (event.key === 'Escape' && event.currentTarget === get('results')) {
+        event.preventDefault();
+        search.focus();
+        return;
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    const buttons = Array.from(get('results').querySelectorAll('.result-open'));
+    if (!buttons.length) return;
+    event.preventDefault();
+    const current = buttons.indexOf(document.activeElement);
+    if (event.key === 'ArrowUp' && current === 0) {
+        search.focus();
+        return;
+    }
+    const next = current < 0 ? (event.key === 'ArrowDown' ? 0 : buttons.length - 1)
+        : current + (event.key === 'ArrowDown' ? 1 : -1);
+    buttons[Math.min(next, buttons.length - 1)].focus();
+}
+
+search.addEventListener('keydown', navigateResults);
+get('results').addEventListener('keydown', navigateResults);
 
 function syncContacts() {
     const same = get('same-contact').checked;
