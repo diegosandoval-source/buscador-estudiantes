@@ -39,7 +39,7 @@ export async function hasAccessFile() {
 }
 
 export async function activateAccount(file, username, password) {
-    const wrongWorkbook = 'Este paso requiere accesos-buscador.xlsx. La planilla de estudiantes se carga después de entrar, en Cargar Excel.';
+    const wrongWorkbook = 'Este paso requiere accesos-buscador.xlsx. La planilla de estudiantes se sube después de entrar, en Cargar datos de Excel.';
     if (!/\.xlsx$/i.test(file.name) || file.size > 128 * 1024) throw new Error(wrongWorkbook);
     if (!globalThis.XLSX) throw new Error('No se cargó el lector de Excel. Recarga la página e intenta nuevamente.');
     let accounts;

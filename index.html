@@ -6,10 +6,10 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
     <title>Student Finder</title>
-    <link rel="stylesheet" href="portal-local.css?v=4">
+    <link rel="stylesheet" href="portal-local.css?v=7">
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
         integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous" defer></script>
-    <script type="module" src="portal-local.js?v=6"></script>
+    <script type="module" src="portal-local.js?v=7"></script>
 </head>
 <body>
     <header class="app-header">
@@ -50,43 +50,21 @@
 
         <section id="workspace" class="stack workspace" hidden>
             <div class="workspace-heading">
-                <div><p class="eyebrow" id="role-label"></p><h1>Estudiantes</h1></div>
+                <div><p class="eyebrow" id="role-label"></p><h1>Buscar estudiantes</h1></div>
                 <div class="actions">
+                    <button id="open-import" class="button primary" type="button" hidden>Cargar datos de Excel</button>
+                    <button id="new-student" class="button secondary" type="button">Nuevo estudiante</button>
                     <button id="open-validation" class="button secondary" type="button" aria-haspopup="dialog">Validar folio</button>
-                    <button id="open-import" class="button secondary" type="button" hidden>Cargar Excel</button>
-                    <button id="new-student" class="button primary" type="button">Nuevo estudiante</button>
                 </div>
             </div>
-            <section class="panel stack" id="admin-import" aria-labelledby="import-title" hidden>
-                <div>
-                    <h2 id="import-title">Cargar Excel</h2>
-                    <p class="muted">Selecciona un Excel con las columnas Nombre y Curso o el archivo del buscador local. También puedes importar su respaldo JSON.</p>
-                </div>
-                <form id="import" class="upload-form">
-                    <label>Archivo de estudiantes
-                        <input name="file" type="file" accept=".xlsx,.xls,.json" required>
-                    </label>
-                    <button type="submit" class="button secondary">Revisar archivo</button>
-                </form>
-                <div id="import-review" class="review stack" hidden>
-                    <p id="import-summary" role="status"></p>
-                    <p id="import-notes" class="muted"></p>
-                    <div class="actions">
-                        <button id="import-commit" class="button primary" type="button">Guardar estudiantes</button>
-                        <button id="import-cancel" class="button" type="button">Cancelar</button>
-                    </div>
-                </div>
-                <p id="import-status" class="message" role="status"></p>
-            </section>
-
-            <section class="panel stack">
-                <div>
-                    <h2>Buscar estudiantes</h2>
-                    <p id="student-count" class="muted"></p>
-                </div>
+            <input id="import-file" type="file" accept=".xlsx,.xls,.json" aria-label="Archivo de estudiantes" hidden>
+            <section class="panel stack" aria-label="Buscador">
                 <label>Nombre, curso o apoderado
                     <input id="search" type="search" placeholder="Escribe para buscar" autocomplete="off" maxlength="160">
                 </label>
+                <p id="student-count" class="muted"></p>
+                <p id="import-status" class="message" role="status" aria-atomic="true"></p>
+                <p id="import-notes" class="muted import-notes"></p>
                 <p id="search-status" class="muted" role="status"></p>
                 <ul id="results" class="list" aria-label="Resultados de búsqueda"></ul>
             </section>
@@ -121,7 +99,7 @@
                 <button type="submit" class="button primary">Cargar y continuar</button>
                 <button type="button" class="button close">Volver</button>
             </div>
-            <p class="muted">Para subir estudiantes, entra al panel y usa <strong>Cargar Excel</strong>.</p>
+            <p class="muted">Para subir estudiantes, entra al buscador y usa <strong>Cargar datos de Excel</strong>.</p>
         </form>
     </dialog>
 

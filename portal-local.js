@@ -1,4 +1,4 @@
-import { activateAccount, folioStatus, hasAccessFile, migrateLegacy, newCode, openAccount, saveVault, validateCode } from './local-data.js?v=6';
+import { activateAccount, folioStatus, hasAccessFile, migrateLegacy, newCode, openAccount, saveVault, validateCode } from './local-data.js?v=7';
 import { normalizeCourse, normalized, readRoster } from './student-import.js';
 
 const get = (id) => document.getElementById(id);
@@ -8,7 +8,8 @@ const accessDialog = get('access-dialog');
 const migrationForm = get('migration');
 const migrationDialog = get('migration-dialog');
 const studentForm = get('student-form');
-const importForm = get('import');
+const importFile = get('import-file');
+const importButton = get('open-import');
 const folioForm = get('folio-form');
 const validationForm = get('validation');
 const search = get('search');
@@ -28,7 +29,6 @@ let saving = false;
 let selected;
 let editing;
 let editingFolio;
-let pendingImport;
 
 function text(tag, value) {
     const node = document.createElement(tag);
@@ -86,10 +86,10 @@ function openWorkspace(nextSession) {
     get('entry').hidden = true;
     get('workspace').hidden = false;
     get('logout').hidden = false;
-    for (const id of ['admin-import', 'admin-folios', 'make-folio', 'remove-student', 'open-import']) get(id).hidden = !admin;
+    for (const id of ['admin-folios', 'make-folio', 'remove-student', 'open-import']) get(id).hidden = !admin;
     showMessage('role-label', admin ? 'Administración' : 'Enfermería');
     render();
-    (admin ? importForm.elements.file : search).focus();
+    search.focus();
 }
 
 function clearLoginPassword() {
@@ -175,21 +175,13 @@ handleSubmit(migrationForm, 'migration-status', async () => {
     }
 });
 
-function resetImport() {
-    pendingImport = null;
-    get('import-review').hidden = true;
-    showMessage('import-summary', '');
-    showMessage('import-notes', '');
-}
-
 get('logout').addEventListener('click', () => {
     if (saving) return;
     session = null;
     selected = null;
     editing = null;
     editingFolio = null;
-    resetImport();
-    importForm.reset();
+    importFile.value = '';
     studentForm.reset();
     folioForm.reset();
     validationForm.reset();
@@ -197,7 +189,7 @@ get('logout').addEventListener('click', () => {
     search.value = '';
     for (const id of ['results', 'contact-cards', 'folio-list']) get(id).replaceChildren();
     for (const id of ['student-name', 'student-course', 'student-count', 'search-status', 'workspace-status',
-        'import-status', 'student-status', 'folio-status', 'validation-status']) showMessage(id, '');
+        'import-status', 'import-notes', 'student-status', 'folio-status', 'validation-status']) showMessage(id, '');
     get('folio-code').value = '';
     get('folio-result').hidden = true;
     for (const dialog of [studentDialog, folioDialog, validationDialog]) if (dialog.open) dialog.close();
@@ -241,8 +233,11 @@ function renderResults() {
     });
     matches.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
     get('results').replaceChildren(...matches.slice(0, 30).map(asResult));
+    const emptyMessage = isAdmin() && !session.data.students.length
+        ? 'Usa Cargar datos de Excel para agregar tus primeras fichas.'
+        : 'No se encontraron fichas.';
     showMessage('search-status', matches.length > 30 ? `Mostrando 30 de ${matches.length} fichas. Acota la búsqueda.`
-        : matches.length ? `${matches.length} ${matches.length === 1 ? 'ficha' : 'fichas'}` : 'No se encontraron fichas.');
+        : matches.length ? `${matches.length} ${matches.length === 1 ? 'ficha' : 'fichas'}` : emptyMessage);
 }
 
 function selectedStudent() {
@@ -408,49 +403,44 @@ export function reviewRoster(roster, saved) {
     return { students, tutors, invalid, duplicates, questionableEmails };
 }
 
-importForm.elements.file.addEventListener('change', () => {
-    resetImport();
-    showMessage('import-status', '');
-});
-get('open-import').addEventListener('click', () => {
-    if (!isAdmin()) return;
-    get('admin-import').scrollIntoView({ block: 'start' });
-    importForm.elements.file.focus({ preventScroll: true });
-});
-get('import-cancel').addEventListener('click', resetImport);
-
-handleSubmit(importForm, 'import-status', async () => {
-    if (!isAdmin()) return;
-    resetImport();
-    const file = importForm.elements.file.files[0];
-    if (!file) throw new Error('Selecciona un archivo.');
-    if (!file.name.toLowerCase().endsWith('.json') && !globalThis.XLSX) {
-        throw new Error('No se cargó el lector de Excel. Vuelve a cargar la página.');
-    }
-    const roster = await readRoster(file);
-    if (!isAdmin() || importForm.elements.file.files[0] !== file) return;
-    pendingImport = reviewRoster(roster, session.data);
-    const { students, tutors, invalid, duplicates, questionableEmails } = pendingImport;
-    get('import-review').hidden = false;
-    showMessage('import-summary', `${students.length} fichas nuevas · ${tutors.length} tutores nuevos`);
-    showMessage('import-notes', `${duplicates} coincidencias conservadas · ${invalid} filas omitidas por nombre o curso incompleto · ${questionableEmails} fichas con correos para revisar.`);
-    get('import-commit').disabled = !students.length && !tutors.length;
+importButton.addEventListener('click', () => {
+    if (isAdmin() && !saving) importFile.click();
 });
 
-get('import-commit').addEventListener('click', async () => {
-    if (!isAdmin() || !pendingImport || saving) return;
-    const previous = session.data;
-    const batch = reviewRoster(pendingImport, previous);
+importFile.addEventListener('change', async () => {
+    const file = importFile.files[0];
+    if (!file || !isAdmin() || saving) return;
+    importButton.disabled = true;
+    showMessage('import-status', 'Leyendo el archivo…');
+    showMessage('import-notes', '');
     try {
-        await persist({ ...previous,
-            students: [...previous.students, ...batch.students.map((row) => ({ ...row, id: crypto.randomUUID() }))],
-            tutors: [...previous.tutors, ...batch.tutors]
-        });
-        resetImport();
-        importForm.reset();
-        render();
-        showMessage('import-status', `Importación guardada. Se agregaron ${batch.students.length} fichas.`);
-    } catch (error) { showMessage('import-status', error.message); }
+        const roster = await readRoster(file);
+        if (!isAdmin() || importFile.files[0] !== file) return;
+        const previous = session.data;
+        const { students, tutors, invalid, duplicates, questionableEmails } = reviewRoster(roster, previous);
+        if (students.length || tutors.length) {
+            await persist({ ...previous,
+                students: [...previous.students, ...students.map((row) => ({ ...row, id: crypto.randomUUID() }))],
+                tutors: [...previous.tutors, ...tutors]
+            });
+            search.value = '';
+            render();
+            search.focus();
+        }
+        const added = [students.length && `${students.length} ${students.length === 1 ? 'ficha' : 'fichas'}`,
+            tutors.length && `${tutors.length} ${tutors.length === 1 ? 'tutor' : 'tutores'}`].filter(Boolean);
+        showMessage('import-status', added.length ? `Importación guardada. Nuevos registros: ${added.join(' y ')}.`
+            : 'No se agregaron registros nuevos.');
+        const notes = [duplicates && `${duplicates} ${duplicates === 1 ? 'coincidencia conservada' : 'coincidencias conservadas'}`,
+            invalid && `${invalid} ${invalid === 1 ? 'fila omitida' : 'filas omitidas'} por nombre o curso incompleto`,
+            questionableEmails && `${questionableEmails} ${questionableEmails === 1 ? 'ficha con correo' : 'fichas con correo'} para revisar`].filter(Boolean);
+        showMessage('import-notes', notes.length ? notes.join(' · ') + '.' : '');
+    } catch (error) {
+        if (isAdmin() && importFile.files[0] === file) showMessage('import-status', error.message);
+    } finally {
+        if (importFile.files[0] === file) importFile.value = '';
+        importButton.disabled = false;
+    }
 });
 
 function openFolio(record) {

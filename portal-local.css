@@ -102,7 +102,7 @@ main { width: min(70rem, 100%); margin: 0 auto; padding: clamp(1rem, 6vw, 5rem) 
 .muted { color: var(--muted); }
 .muted, .message, .review { overflow-wrap: anywhere; }
 .message { color: var(--green-dark); font-weight: 600; }
-.message:empty, .list:empty { display: none; }
+.message:empty, .list:empty, .import-notes:empty { display: none; }
 label { display: grid; gap: .28rem; color: var(--ink); font-size: .875rem; font-weight: 670; }
 label.check { display: flex; align-items: center; gap: .45rem; }
 input:not([type="checkbox"]) {
@@ -122,9 +122,7 @@ input[readonly] { background: #f3f7f4; }
 .button:disabled { opacity: .55; cursor: default; }
 .workspace-heading { display: flex; align-items: end; justify-content: space-between; gap: .85rem; flex-wrap: wrap; }
 .eyebrow { color: var(--green); font-size: .82rem; font-weight: 750; margin-bottom: .35rem; }
-.upload-form { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
-.upload-form label { flex: 1 1 15rem; min-width: 0; }
-.review { background: var(--green-soft); border-radius: .55rem; padding: .9rem; }
+.import-notes { font-size: .9rem; }
 .list { margin: 0; padding: 0; list-style: none; }
 .list li {
     display: flex; gap: .7rem; align-items: center; justify-content: space-between; flex-wrap: wrap;
