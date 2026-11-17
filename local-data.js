@@ -39,10 +39,18 @@ export async function hasAccessFile() {
 }
 
 export async function activateAccount(file, username, password) {
-    if (file.size > 4000) throw new Error('El archivo de accesos no es válido.');
+    if (!/\.xlsx$/i.test(file.name) || file.size > 128 * 1024) {
+        throw new Error('Selecciona el Excel de accesos (.xlsx).');
+    }
+    if (!globalThis.XLSX) throw new Error('No se cargó el lector de Excel. Recarga la página e intenta nuevamente.');
     let accounts;
     try {
-        const parsed = JSON.parse(await file.text());
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (bytes[0] !== 0x50 || bytes[1] !== 0x4b || bytes[2] !== 0x03 || bytes[3] !== 0x04) throw new Error();
+        const book = globalThis.XLSX.read(bytes, { type: 'array', sheets: 'Accesos', sheetRows: 9 });
+        const cell = book.Sheets.Accesos?.C9;
+        if (typeof cell?.v !== 'string' || cell.f || cell.v.length > 4000) throw new Error();
+        const parsed = JSON.parse(cell.v);
         if (parsed.version !== 2 || Object.keys(parsed.accounts).length !== 2) throw new Error();
         accounts = Object.fromEntries(['admin', 'enfermeria'].map((username) => {
             const { salt, iv, ciphertext } = parsed.accounts[username];
@@ -52,7 +60,7 @@ export async function activateAccount(file, username, password) {
             return [username, { salt, iv, ciphertext }];
         }));
     } catch {
-        throw new Error('Selecciona el archivo de accesos del buscador.');
+        throw new Error('El archivo seleccionado no es el Excel de accesos de Student Finder.');
     }
     const account = await authenticate(accounts, username, password);
     const db = await database();

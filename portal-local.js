@@ -1,4 +1,4 @@
-import { activateAccount, folioStatus, hasAccessFile, migrateLegacy, newCode, openAccount, saveVault, validateCode } from './local-data.js?v=4';
+import { activateAccount, folioStatus, hasAccessFile, migrateLegacy, newCode, openAccount, saveVault, validateCode } from './local-data.js?v=5';
 import { normalizeCourse, normalized, readRoster } from './student-import.js';
 
 const get = (id) => document.getElementById(id);
@@ -133,7 +133,7 @@ accessDialog.addEventListener('cancel', (event) => {
 
 handleSubmit(accessForm, 'access-status', async () => {
     const file = accessForm.elements.file.files[0];
-    if (!file) throw new Error('Selecciona el archivo de accesos.');
+    if (!file) throw new Error('Selecciona el Excel de accesos.');
     const back = accessForm.querySelector('.close');
     activating = true;
     back.disabled = true;
