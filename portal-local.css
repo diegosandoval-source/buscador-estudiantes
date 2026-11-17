@@ -29,10 +29,37 @@ input, button { font: inherit; }
     padding: 1rem clamp(1rem, 5vw, 3rem); background: #fbfcf9; border-bottom: 1px solid var(--line);
 }
 .brand, nav, .actions { display: flex; gap: .65rem; align-items: center; flex-wrap: wrap; }
-.brand strong { letter-spacing: -.02em; }
+.brand { flex-wrap: nowrap; }
+.brand strong { letter-spacing: -.035em; font-size: 1.13rem; }
 .brand-mark {
-    display: grid; place-items: center; width: 2.6rem; height: 2.6rem; border-radius: .8rem;
-    background: var(--green-dark); color: var(--paper); font-size: .875rem; font-weight: 800;
+    display: grid;
+    place-items: center;
+    flex: 0 0 2.65rem;
+    width: 2.65rem;
+    height: 2.65rem;
+    border-radius: .85rem;
+    background: linear-gradient(150deg, #39735d, var(--green-dark) 75%);
+    color: #f0fff2;
+}
+.brand-lens {
+    position: relative;
+    width: 1.05rem;
+    height: 1.05rem;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    transform: translate(-.09rem, -.09rem);
+}
+.brand-lens::after {
+    content: "";
+    position: absolute;
+    top: 88%;
+    left: 88%;
+    width: .61rem;
+    height: .14rem;
+    border-radius: .15rem;
+    background: currentColor;
+    transform: rotate(45deg);
+    transform-origin: left center;
 }
 main { width: min(70rem, 100%); margin: 0 auto; padding: clamp(1rem, 6vw, 5rem) clamp(1rem, 4vw, 2.5rem); }
 .entry {

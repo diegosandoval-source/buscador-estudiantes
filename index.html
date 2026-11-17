@@ -5,27 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
-    <title>Buscador de estudiantes</title>
-    <link rel="stylesheet" href="portal-local.css?v=2">
+    <title>Student Finder</title>
+    <link rel="stylesheet" href="portal-local.css?v=3">
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
         integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous" defer></script>
-    <script type="module" src="portal-local.js?v=2"></script>
+    <script type="module" src="portal-local.js?v=3"></script>
 </head>
 <body>
     <header class="app-header">
         <div class="brand">
-            <span class="brand-mark" aria-hidden="true">BE</span>
-            <strong>Buscador Estudiantes</strong>
+            <span class="brand-mark" aria-hidden="true"><span class="brand-lens"></span></span>
+            <strong>Student Finder</strong>
         </div>
         <nav aria-label="Menú principal">
-            <button id="open-validation" class="button" type="button">Validar folio</button>
             <button id="logout" class="button" type="button" hidden>Cerrar sesión</button>
         </nav>
     </header>
     <main>
         <section id="entry" class="entry">
             <div class="entry-info">
-                <h1>Buscador de estudiantes</h1>
+                <h1>Student Finder</h1>
                 <p>Consulta fichas y valida folios en el portal de Administración y Enfermería.</p>
                 <p class="local-note">Las fichas y los folios se guardan en este navegador.</p>
             </div>
@@ -57,7 +56,11 @@
         <section id="workspace" class="stack workspace" hidden>
             <div class="workspace-heading">
                 <div><p class="eyebrow" id="role-label"></p><h1>Estudiantes</h1></div>
-                <button id="new-student" class="button primary" type="button">Nuevo estudiante</button>
+                <div class="actions">
+                    <button id="open-validation" class="button secondary" type="button" aria-haspopup="dialog">Validar folio</button>
+                    <button id="open-import" class="button secondary" type="button" hidden>Cargar Excel</button>
+                    <button id="new-student" class="button primary" type="button">Nuevo estudiante</button>
+                </div>
             </div>
             <section class="panel stack" id="admin-import" aria-labelledby="import-title" hidden>
                 <div>

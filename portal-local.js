@@ -110,7 +110,7 @@ function openWorkspace(nextSession) {
     get('entry').hidden = true;
     get('workspace').hidden = false;
     get('logout').hidden = false;
-    for (const id of ['admin-import', 'admin-folios', 'make-folio', 'remove-student']) get(id).hidden = !admin;
+    for (const id of ['admin-import', 'admin-folios', 'make-folio', 'remove-student', 'open-import']) get(id).hidden = !admin;
     showMessage('role-label', admin ? 'Administración' : 'Enfermería');
     render();
     (admin ? importForm.elements.file : search).focus();
@@ -171,19 +171,19 @@ get('logout').addEventListener('click', () => {
     importForm.reset();
     studentForm.reset();
     folioForm.reset();
+    validationForm.reset();
     login.reset();
     search.value = '';
     for (const id of ['results', 'contact-cards', 'folio-list']) get(id).replaceChildren();
     for (const id of ['student-name', 'student-course', 'student-count', 'search-status', 'workspace-status',
-        'import-status', 'student-status', 'folio-status']) showMessage(id, '');
+        'import-status', 'student-status', 'folio-status', 'validation-status']) showMessage(id, '');
     get('folio-code').value = '';
     get('folio-result').hidden = true;
-    for (const dialog of [studentDialog, folioDialog]) if (dialog.open) dialog.close();
+    for (const dialog of [studentDialog, folioDialog, validationDialog]) if (dialog.open) dialog.close();
     get('student-card').hidden = true;
     get('workspace').hidden = true;
     get('logout').hidden = true;
     get('entry').hidden = false;
-    get('enter').disabled = true;
     get('enter').disabled = true;
     configureLogin().then(() => login.elements.username.focus());
 });
@@ -390,6 +390,11 @@ importForm.elements.file.addEventListener('change', () => {
     resetImport();
     showMessage('import-status', '');
 });
+get('open-import').addEventListener('click', () => {
+    if (!isAdmin()) return;
+    get('admin-import').scrollIntoView({ block: 'start' });
+    importForm.elements.file.focus({ preventScroll: true });
+});
 get('import-cancel').addEventListener('click', resetImport);
 
 handleSubmit(importForm, 'import-status', async () => {
@@ -466,15 +471,18 @@ handleSubmit(folioForm, 'folio-status', async () => {
 });
 
 get('open-validation').addEventListener('click', () => {
+    if (!session) return;
     validationForm.reset();
     showMessage('validation-status', '');
     validationDialog.showModal();
 });
 
 handleSubmit(validationForm, 'validation-status', async () => {
+    if (!session) return;
+    const validatingSession = session;
     const value = validationForm.elements.code.value;
     const result = await validateCode(value);
-    if (validationDialog.open && validationForm.elements.code.value === value) {
+    if (session === validatingSession && validationDialog.open && validationForm.elements.code.value === value) {
         showMessage('validation-status', statusText[result]);
     }
 });
