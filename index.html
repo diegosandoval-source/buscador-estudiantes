@@ -6,10 +6,10 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
     <title>Student Finder</title>
-    <link rel="stylesheet" href="portal-local.css?v=3">
+    <link rel="stylesheet" href="portal-local.css?v=4">
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
         integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous" defer></script>
-    <script type="module" src="portal-local.js?v=3"></script>
+    <script type="module" src="portal-local.js?v=4"></script>
 </head>
 <body>
     <header class="app-header">
@@ -43,11 +43,6 @@
                     <button id="reveal" class="button secondary" type="button" aria-pressed="false">Mostrar contraseña</button>
                 </div>
                 <button id="enter" class="button primary" type="submit" disabled>Entrar</button>
-                <div id="access-setup" class="access-setup" hidden>
-                    <p class="muted">Carga el archivo de accesos una vez en este navegador.</p>
-                    <input id="access-file" type="file" accept=".json,application/json" hidden>
-                    <button id="choose-access" class="button secondary" type="button">Cargar archivo de accesos</button>
-                </div>
                 <p id="login-status" class="message" role="status"></p>
                 <noscript>Activa JavaScript para usar el portal.</noscript>
             </form>
@@ -113,6 +108,21 @@
             <p id="workspace-status" class="message" role="status"></p>
         </section>
     </main>
+
+    <dialog id="access-dialog" aria-labelledby="access-title">
+        <form id="access-form" class="stack">
+            <h2 id="access-title">Activar este navegador</h2>
+            <p class="muted">Selecciona accesos-buscador.json para comprobar las credenciales que ingresaste. Este paso se hace una vez por navegador.</p>
+            <label>Archivo de accesos
+                <input name="file" type="file" accept=".json,application/json" required>
+            </label>
+            <p id="access-status" class="message" role="status"></p>
+            <div class="actions">
+                <button type="submit" class="button primary">Cargar y continuar</button>
+                <button type="button" class="button close">Volver</button>
+            </div>
+        </form>
+    </dialog>
 
     <dialog id="migration-dialog" aria-labelledby="migration-title">
         <form id="migration" class="stack">

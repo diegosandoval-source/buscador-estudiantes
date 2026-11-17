@@ -38,7 +38,7 @@ export async function hasAccessFile() {
     return Boolean(await read(accessSlot));
 }
 
-export async function importAccessFile(file) {
+export async function activateAccount(file, username, password) {
     if (file.size > 4000) throw new Error('El archivo de accesos no es válido.');
     let accounts;
     try {
@@ -54,6 +54,7 @@ export async function importAccessFile(file) {
     } catch {
         throw new Error('Selecciona el archivo de accesos del buscador.');
     }
+    const account = await authenticate(accounts, username, password);
     const db = await database();
     await new Promise((resolve, reject) => {
         const tx = db.transaction(storeName, 'readwrite');
@@ -62,6 +63,7 @@ export async function importAccessFile(file) {
         tx.onabort = () => reject(new Error(request.error?.name === 'ConstraintError'
             ? 'Este navegador ya tiene un archivo de accesos.' : 'No se pudo guardar el archivo de accesos.'));
     });
+    return loadAccount(account);
 }
 
 async function deriveKey(password, salt) {
@@ -91,9 +93,7 @@ async function importDataKey(encoded) {
     return crypto.subtle.importKey('raw', decodeBytes(encoded), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
 
-async function authenticate(username, password) {
-    const accounts = await read(accessSlot);
-    if (!accounts) throw new Error('Primero carga el archivo de accesos de este navegador.');
+async function authenticate(accounts, username, password) {
     const account = Object.hasOwn(accounts, username) ? accounts[username] : null;
     if (!account) throw new Error('Usuario o contraseña incorrectos.');
     const key = await deriveKey(password, decodeBytes(account.salt));
@@ -137,7 +137,12 @@ async function decryptData(key, envelope, scope) {
 }
 
 export async function openAccount(username, password) {
-    const account = await authenticate(username, password);
+    const accounts = await read(accessSlot);
+    if (!accounts) throw new Error('Primero carga el archivo de accesos de este navegador.');
+    return loadAccount(await authenticate(accounts, username, password));
+}
+
+async function loadAccount(account) {
     const envelope = await read(vaultSlot);
     if (envelope) {
         const shared = await decryptData(account.sharedKey, envelope.shared, 'fichas:v2');

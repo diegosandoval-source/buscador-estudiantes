@@ -1,8 +1,10 @@
-import { folioStatus, hasAccessFile, importAccessFile, migrateLegacy, newCode, openAccount, saveVault, validateCode } from './local-data.js?v=2';
+import { activateAccount, folioStatus, hasAccessFile, migrateLegacy, newCode, openAccount, saveVault, validateCode } from './local-data.js?v=4';
 import { normalizeCourse, normalized, readRoster } from './student-import.js';
 
 const get = (id) => document.getElementById(id);
 const login = get('login');
+const accessForm = get('access-form');
+const accessDialog = get('access-dialog');
 const migrationForm = get('migration');
 const migrationDialog = get('migration-dialog');
 const studentForm = get('student-form');
@@ -19,6 +21,7 @@ const statusText = {
 };
 
 let session;
+let activating = false;
 let pendingMigration;
 let migrating = false;
 let saving = false;
@@ -58,40 +61,13 @@ function handleSubmit(form, statusId, handler) {
     });
 }
 
-async function configureLogin() {
+function configureLogin() {
     if (!globalThis.crypto?.subtle || !globalThis.indexedDB) {
         showMessage('login-status', 'Abre esta página en un navegador actualizado mediante HTTPS.');
         return;
     }
-    try {
-        const ready = await hasAccessFile();
-        get('access-setup').hidden = ready;
-        get('enter').disabled = !ready;
-        return ready;
-    } catch (error) {
-        showMessage('login-status', error.message);
-    }
+    get('enter').disabled = false;
 }
-
-get('choose-access').addEventListener('click', () => get('access-file').click());
-get('access-file').addEventListener('change', async (event) => {
-    const input = event.target;
-    const file = input.files[0];
-    if (!file) return;
-    get('choose-access').disabled = true;
-    try {
-        await importAccessFile(file);
-        if (await configureLogin()) {
-            showMessage('login-status', 'Archivo cargado. Ingresa con tu cuenta asignada.');
-            login.elements.username.focus();
-        }
-    } catch (error) {
-        showMessage('login-status', error.message);
-    } finally {
-        input.value = '';
-        get('choose-access').disabled = false;
-    }
-});
 
 get('reveal').addEventListener('click', () => {
     const show = login.elements.password.type === 'password';
@@ -116,11 +92,12 @@ function openWorkspace(nextSession) {
     (admin ? importForm.elements.file : search).focus();
 }
 
-handleSubmit(login, 'login-status', async () => {
-    const username = login.elements.username.value.trim().toLowerCase();
-    const result = await openAccount(username, login.elements.password.value);
+function clearLoginPassword() {
     login.elements.password.value = '';
     if (login.elements.password.type === 'text') get('reveal').click();
+}
+
+function completeLogin(result) {
     if (result.migration) {
         pendingMigration = result.migration;
         showMessage('migration-status', '');
@@ -128,6 +105,50 @@ handleSubmit(login, 'login-status', async () => {
         return;
     }
     openWorkspace(result.session);
+}
+
+function credentials() {
+    return [login.elements.username.value.trim().toLowerCase(), login.elements.password.value];
+}
+
+handleSubmit(login, 'login-status', async () => {
+    if (!await hasAccessFile()) {
+        accessForm.reset();
+        showMessage('access-status', '');
+        accessDialog.showModal();
+        return;
+    }
+    const account = credentials();
+    clearLoginPassword();
+    completeLogin(await openAccount(...account));
+});
+
+accessDialog.addEventListener('close', () => {
+    accessForm.reset();
+    clearLoginPassword();
+});
+accessDialog.addEventListener('cancel', (event) => {
+    if (activating) event.preventDefault();
+});
+
+handleSubmit(accessForm, 'access-status', async () => {
+    const file = accessForm.elements.file.files[0];
+    if (!file) throw new Error('Selecciona el archivo de accesos.');
+    const back = accessForm.querySelector('.close');
+    activating = true;
+    back.disabled = true;
+    try {
+        const result = await activateAccount(file, ...credentials());
+        accessDialog.close();
+        completeLogin(result);
+    } catch (error) {
+        if (!await hasAccessFile()) throw error;
+        accessDialog.close();
+        showMessage('login-status', error.message);
+    } finally {
+        activating = false;
+        back.disabled = false;
+    }
 });
 
 migrationDialog.addEventListener('close', () => {
@@ -185,7 +206,8 @@ get('logout').addEventListener('click', () => {
     get('logout').hidden = true;
     get('entry').hidden = false;
     get('enter').disabled = true;
-    configureLogin().then(() => login.elements.username.focus());
+    configureLogin();
+    login.elements.username.focus();
 });
 
 async function persist(data) {
