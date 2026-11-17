@@ -1,5 +1,5 @@
-import { activateAccount, changeInitialPassword, exportEncryptedBackup, folioStatus, hasAccessFile, migrateLegacy, newCode,
-    openAccount, restoreEncryptedBackup, saveVault, todayInChile, validateCode } from './local-data.js?v=8';
+import { activateAccount, changeInitialPassword, folioStatus, hasAccessFile, newCode, openAccount,
+    saveVault, todayInChile, validateCode } from './local-data.js?v=8';
 import { normalizeCourse, normalized, readRoster } from './student-import.js?v=8';
 import { displayRut, normalizeRut, resolveStudent, studentMatches, validationFromForm, validationLabels } from './validation-records.js?v=8';
 
@@ -11,9 +11,6 @@ const passwordForm = get('password-change');
 const passwordDialog = get('password-dialog');
 const recordForm = get('record-form');
 const recordDialog = get('record-dialog');
-const backupFile = get('backup-file');
-const migrationForm = get('migration');
-const migrationDialog = get('migration-dialog');
 const studentForm = get('student-form');
 const importFile = get('import-file');
 const importButton = get('open-import');
@@ -32,7 +29,6 @@ let session;
 let activating = false;
 let pendingPasswordChange;
 let changingPassword = false;
-let migrating = false;
 let saving = false;
 let selected;
 let editing;
@@ -104,18 +100,16 @@ function openWorkspace(nextSession) {
     get('logout').hidden = false;
     get('load-data').hidden = false;
     get('connected-user').hidden = false;
-    for (const id of ['admin-folios', 'make-folio', 'remove-student', 'open-import', 'admin-backups']) get(id).hidden = !admin;
-    get('recover-legacy').hidden = !nextSession.canRecoverLegacy;
+    for (const id of ['make-folio', 'remove-student', 'open-import']) get(id).hidden = !admin;
     showMessage('role-label', admin ? 'Administración' : 'Enfermería');
     showMessage('connected-user', nextSession.username);
-    showMessage('welcome-message', admin ? 'Hola, Administrador. Has iniciado sesión correctamente.' : 'Hola, Enfermería. Has iniciado sesión correctamente.');
     showMessage('search-label', admin ? 'Nombre, apellido, RUT, curso o folio' : 'Nombre, apellido, curso o folio');
     try {
         if (login.elements.remember.checked) localStorage.setItem(rememberedUserKey, nextSession.username);
         else localStorage.removeItem(rememberedUserKey);
     } catch { /* El acceso funciona sin preferencias guardadas. */ }
     render();
-    search.focus();
+    search.focus({ preventScroll: true });
 }
 
 function clearLoginPassword() {
@@ -203,35 +197,6 @@ handleSubmit(passwordForm, 'password-status', async () => {
     }
 });
 
-get('recover-legacy').addEventListener('click', () => {
-    if (!isAdmin() || !session.canRecoverLegacy || saving) return;
-    showMessage('migration-status', '');
-    migrationDialog.showModal();
-});
-migrationDialog.addEventListener('close', () => {
-    migrationForm.reset();
-});
-migrationDialog.addEventListener('cancel', (event) => {
-    if (migrating) event.preventDefault();
-});
-
-handleSubmit(migrationForm, 'migration-status', async () => {
-    if (!isAdmin() || !session.canRecoverLegacy || saving) return;
-    migrating = true;
-    const back = migrationForm.querySelector('.close');
-    back.disabled = true;
-    try {
-        session = await migrateLegacy(session, migrationForm.elements.previousPassword.value);
-        migrationDialog.close();
-        get('recover-legacy').hidden = true;
-        render();
-        showMessage('workspace-status', 'Se recuperaron las fichas y los folios anteriores.');
-    } finally {
-        back.disabled = false;
-        migrating = false;
-    }
-});
-
 get('logout').addEventListener('click', () => {
     if (saving) return;
     session = null;
@@ -247,9 +212,9 @@ get('logout').addEventListener('click', () => {
     validationForm.reset();
     login.reset();
     search.value = '';
-    for (const id of ['results', 'contact-cards', 'folio-list', 'student-history']) get(id).replaceChildren();
+    for (const id of ['results', 'contact-cards', 'student-history']) get(id).replaceChildren();
     for (const id of ['student-name', 'student-course', 'student-rut', 'connected-user', 'search-status', 'workspace-status',
-        'import-status', 'import-notes', 'student-status', 'folio-status', 'validation-status', 'backup-status']) showMessage(id, '');
+        'import-status', 'import-notes', 'student-status', 'folio-status', 'validation-status']) showMessage(id, '');
     get('folio-code').value = '';
     get('folio-result').hidden = true;
     for (const dialog of [studentDialog, folioDialog, validationDialog, recordDialog]) if (dialog.open) dialog.close();
@@ -287,13 +252,31 @@ function histories() {
 
 function asResult(record, history) {
     const item = document.createElement('li');
+    const profile = document.createElement('div');
+    profile.className = 'result-profile';
+    const initials = record.name.trim().split(/\s+/).slice(0, 2).map((word) => Array.from(word)[0]).join('');
+    const avatar = text('span', initials.toLocaleUpperCase('es'));
+    avatar.className = 'result-avatar';
+    avatar.setAttribute('aria-hidden', 'true');
     const description = document.createElement('div');
     description.className = 'result-line';
-    const states = [...new Set(history.map((entry) => validationLabels[folioStatus(entry)]))];
+    const states = [...new Set(history.map((entry) => folioStatus(entry)))];
     const detail = [record.course, isAdmin() && record.rut ? 'RUT ' + displayRut(record.rut) : '',
-        `${history.length} ${history.length === 1 ? 'validación' : 'validaciones'}`, ...states].filter(Boolean).join(' · ');
+        `${history.length} ${history.length === 1 ? 'validación' : 'validaciones'}`].filter(Boolean).join(' · ');
     description.append(text('strong', record.name), text('span', detail));
-    item.append(description,
+    if (states.length) {
+        const labels = document.createElement('div');
+        labels.className = 'state-labels';
+        labels.append(...states.map((state) => {
+            const badge = text('span', validationLabels[state]);
+            badge.className = 'state-label';
+            badge.dataset.state = state;
+            return badge;
+        }));
+        description.append(labels);
+    }
+    profile.append(avatar, description);
+    item.append(profile,
         action('Ver detalle', () => {
             selected = record.id;
             renderStudent();
@@ -308,7 +291,10 @@ function renderResults() {
     const matches = session.data.students.filter((record) => studentMatches(record, byStudent.get(record.id) ?? [], search.value));
     matches.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
     get('results').replaceChildren(...matches.slice(0, 30).map((record) => asResult(record, byStudent.get(record.id) ?? [])));
-    get('empty-results').hidden = Boolean(session.data.students.length);
+    get('empty-results').hidden = matches.length > 0;
+    showMessage('empty-results-message', session.data.students.length
+        ? 'No hay alumnos que coincidan con tu búsqueda.'
+        : 'Actualmente no existen alumnos registrados. Para comenzar, presiona el botón Cargar datos.');
     const count = `${matches.length} ${matches.length === 1 ? 'resultado encontrado' : 'resultados encontrados'}`;
     showMessage('search-status', matches.length > 30 ? `${count}. Se muestran 30.` : count);
 }
@@ -367,25 +353,9 @@ function renderStudent() {
     get('student-history').replaceChildren(...(history.length ? history.map(historyItem) : [text('li', 'Aún no hay validaciones registradas.')]));
 }
 
-function renderFolios() {
-    if (!isAdmin()) {
-        get('folio-list').replaceChildren();
-        return;
-    }
-    const names = new Map(session.data.students.map((record) => [record.id, record.name]));
-    const items = session.data.folios.slice().reverse().map((folio) => {
-        const item = document.createElement('li');
-        const label = `${names.get(folio.studentId)} · ${folio.published ? statusText[folioStatus(folio)] : 'Privado'}`;
-        item.append(text('span', label), action('Abrir folio', () => openFolio(folio)));
-        return item;
-    });
-    get('folio-list').replaceChildren(...(items.length ? items : [text('li', 'Todavía no hay folios.')]));
-}
-
 function render() {
     renderResults();
     renderStudent();
-    renderFolios();
 }
 
 search.addEventListener('input', renderResults);
@@ -617,40 +587,6 @@ importFile.addEventListener('change', async () => {
     }
 });
 
-get('backup-export').addEventListener('click', async () => {
-    if (!isAdmin() || saving) return;
-    try {
-        const payload = await exportEncryptedBackup(session);
-        const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `student-finder-respaldo-${todayInChile()}.json`;
-        document.body.append(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        showMessage('backup-status', 'Respaldo cifrado descargado.');
-    } catch (error) { showMessage('backup-status', error.message); }
-});
-
-get('backup-open').addEventListener('click', () => { if (isAdmin() && !saving) backupFile.click(); });
-backupFile.addEventListener('change', async () => {
-    const file = backupFile.files[0];
-    if (!file || !isAdmin() || saving) return;
-    saving = true;
-    get('logout').disabled = true;
-    try {
-        session = await restoreEncryptedBackup(session, file);
-        render();
-        showMessage('backup-status', 'Respaldo incorporado.');
-    } catch (error) { showMessage('backup-status', error.message); }
-    finally {
-        backupFile.value = '';
-        saving = false;
-        get('logout').disabled = false;
-    }
-});
-
 function openFolio(record) {
     if (!isAdmin()) return;
     editingFolio = record?.code;
@@ -687,7 +623,7 @@ handleSubmit(folioForm, 'folio-status', async () => {
     get('folio-result').hidden = false;
     get('folio-code').value = record.code;
     showMessage('folio-status', record.published ? 'Folio guardado. Puedes consultarlo con «Validar folio».' : 'Folio guardado como privado.');
-    renderFolios();
+    render();
 });
 
 get('open-validation').addEventListener('click', () => {
