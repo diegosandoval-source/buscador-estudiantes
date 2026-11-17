@@ -39,9 +39,8 @@ export async function hasAccessFile() {
 }
 
 export async function activateAccount(file, username, password) {
-    if (!/\.xlsx$/i.test(file.name) || file.size > 128 * 1024) {
-        throw new Error('Selecciona el Excel de accesos (.xlsx).');
-    }
+    const wrongWorkbook = 'Este paso requiere accesos-buscador.xlsx. La planilla de estudiantes se carga después de entrar, en Cargar Excel.';
+    if (!/\.xlsx$/i.test(file.name) || file.size > 128 * 1024) throw new Error(wrongWorkbook);
     if (!globalThis.XLSX) throw new Error('No se cargó el lector de Excel. Recarga la página e intenta nuevamente.');
     let accounts;
     try {
@@ -60,7 +59,7 @@ export async function activateAccount(file, username, password) {
             return [username, { salt, iv, ciphertext }];
         }));
     } catch {
-        throw new Error('El archivo seleccionado no es el Excel de accesos de Student Finder.');
+        throw new Error(wrongWorkbook);
     }
     const account = await authenticate(accounts, username, password);
     const db = await database();

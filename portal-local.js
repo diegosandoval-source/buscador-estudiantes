@@ -1,4 +1,4 @@
-import { activateAccount, folioStatus, hasAccessFile, migrateLegacy, newCode, openAccount, saveVault, validateCode } from './local-data.js?v=5';
+import { activateAccount, folioStatus, hasAccessFile, migrateLegacy, newCode, openAccount, saveVault, validateCode } from './local-data.js?v=6';
 import { normalizeCourse, normalized, readRoster } from './student-import.js';
 
 const get = (id) => document.getElementById(id);
