@@ -4,7 +4,8 @@ const vaultSlot = 'vault-v2';
 const publicSlot = 'public';
 const accessSlot = 'access-v2';
 const academicFields = ['academic_name', 'academic_phone', 'academic_email'];
-const financialFields = ['financial_name', 'financial_phone', 'financial_email'];
+const privateFields = ['financial_name', 'financial_phone', 'financial_email', 'rut'];
+const validationFields = ['id', 'studentId', 'code', 'type', 'issuedOn', 'expiresOn', 'state', 'notes'];
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 let opened;
@@ -34,12 +35,21 @@ function decodeBytes(value) {
     return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
 }
 
+function encodeBytes(value) {
+    const bytes = new Uint8Array(value);
+    let text = '';
+    for (let offset = 0; offset < bytes.length; offset += 16384) {
+        text += String.fromCharCode(...bytes.subarray(offset, offset + 16384));
+    }
+    return btoa(text);
+}
+
 export async function hasAccessFile() {
     return Boolean(await read(accessSlot));
 }
 
 export async function activateAccount(file, username, password) {
-    const wrongWorkbook = 'Este paso requiere accesos-buscador.xlsx. La planilla de estudiantes se sube después de entrar, en Cargar datos de Excel.';
+    const wrongWorkbook = 'Este paso requiere accesos-buscador.xlsx. La planilla de alumnos se importa dentro del panel.';
     if (!/\.xlsx$/i.test(file.name) || file.size > 128 * 1024) throw new Error(wrongWorkbook);
     if (!globalThis.XLSX) throw new Error('No se cargó el lector de Excel. Recarga la página e intenta nuevamente.');
     let accounts;
@@ -70,7 +80,7 @@ export async function activateAccount(file, username, password) {
         tx.onabort = () => reject(new Error(request.error?.name === 'ConstraintError'
             ? 'Este navegador ya tiene un archivo de accesos.' : 'No se pudo guardar el archivo de accesos.'));
     });
-    return loadAccount(account);
+    return finishSignIn(account);
 }
 
 async function deriveKey(password, salt) {
@@ -115,13 +125,15 @@ async function authenticate(accounts, username, password) {
     }
     return {
         username,
+        original: account,
+        material,
         sharedKey: await importDataKey(material.shared),
         privateKey: material.private ? await importDataKey(material.private) : null
     };
 }
 
 function emptyData() {
-    return { version: 1, students: [], tutors: [], folios: [] };
+    return { version: 1, students: [], tutors: [], folios: [], validations: [] };
 }
 
 async function encryptData(key, data, scope) {
@@ -146,36 +158,131 @@ async function decryptData(key, envelope, scope) {
 export async function openAccount(username, password) {
     const accounts = await read(accessSlot);
     if (!accounts) throw new Error('Primero carga el archivo de accesos de este navegador.');
-    return loadAccount(await authenticate(accounts, username, password));
+    return finishSignIn(await authenticate(accounts, username, password));
+}
+
+function finishSignIn({ original, material, ...account }) {
+    if (!original.passwordChanged) return { passwordChange: { account, original, material } };
+    return loadAccount(account);
+}
+
+export async function changeInitialPassword(pending, password) {
+    if (password.length < 12 || password.length > 256) throw new Error('Usa una contraseña nueva de entre 12 y 256 caracteres.');
+    const { account, original, material } = pending;
+    const previousKey = await deriveKey(password, decodeBytes(original.salt));
+    const same = await crypto.subtle.decrypt({
+        name: 'AES-GCM', iv: decodeBytes(original.iv), additionalData: encoder.encode('cuenta:' + account.username)
+    }, previousKey, decodeBytes(original.ciphertext)).then(() => true, () => false);
+    if (same) throw new Error('Elige una contraseña distinta de la temporal.');
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await deriveKey(password, salt);
+    const wrapped = await encryptData(key, material, 'cuenta:' + account.username);
+    const updated = { salt: encodeBytes(salt), iv: encodeBytes(wrapped.iv),
+        ciphertext: encodeBytes(wrapped.ciphertext), passwordChanged: true };
+    const db = await database();
+    await new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const current = store.get(accessSlot);
+        current.onsuccess = () => {
+            if (current.result?.[account.username]?.ciphertext !== original.ciphertext) {
+                tx.abort();
+                return;
+            }
+            store.put({ ...current.result, [account.username]: updated }, accessSlot);
+        };
+        tx.oncomplete = resolve;
+        tx.onabort = () => reject(new Error('No se pudo actualizar la contraseña. Vuelve a iniciar sesión.'));
+    });
+    return loadAccount(account);
+}
+
+async function readData(account, envelope) {
+    const shared = await decryptData(account.sharedKey, envelope.shared, 'fichas:v2');
+    const privateData = account.privateKey && envelope.private
+        ? await decryptData(account.privateKey, envelope.private, 'administracion:v2') : null;
+    return {
+        version: 1,
+        students: privateData ? shared.students.map((student) => ({
+            ...student, ...privateData.financial?.[student.id]
+        })) : shared.students,
+        tutors: shared.tutors, folios: privateData?.folios ?? [],
+        validations: (shared.validations ?? []).map((record) => ({
+            ...record, ...privateData?.publications?.[record.id]
+        }))
+    };
 }
 
 async function loadAccount(account) {
-    const envelope = await read(vaultSlot);
+    const [envelope, legacy] = await Promise.all([read(vaultSlot), read('vault')]);
+    const recoveredLegacyRevision = envelope?.recoveredLegacyRevision ?? 0;
+    const active = { ...account, recoveredLegacyRevision, canRecoverLegacy: Boolean(
+        account.privateKey && legacy && legacy.revision !== recoveredLegacyRevision
+    ) };
     if (envelope) {
-        const shared = await decryptData(account.sharedKey, envelope.shared, 'fichas:v2');
-        const privateData = account.privateKey && envelope.private
-            ? await decryptData(account.privateKey, envelope.private, 'administracion:v2') : null;
-        const students = privateData ? shared.students.map((student) => ({
-            ...student, ...privateData.financial[student.id]
-        })) : shared.students;
-        return { session: { ...account, revision: envelope.revision, data: {
-            version: 1, students, tutors: shared.tutors, folios: privateData?.folios ?? []
-        } } };
-    }
-    if (await read('vault')) {
-        if (!account.privateKey) throw new Error('Administración debe recuperar las fichas anteriores en este navegador.');
-        return { migration: account };
+        return { session: { ...active, revision: envelope.revision, data: await readData(account, envelope) } };
     }
     const data = emptyData();
-    return { session: await saveVault({ ...account, revision: 0, data }, data, 0) };
+    return { session: await saveVault({ ...active, revision: 0, data }, data, legacy?.revision ?? 0) };
 }
 
-export async function migrateLegacy(account, password) {
-    if (!account.privateKey) throw new Error('La recuperación está disponible para Administración.');
+function mergeRecovery(current, previous) {
+    const students = new Map(current.students.map((student) => [student.id, student]));
+    const studentIds = new Map();
+    for (const student of previous.students) {
+        const match = students.get(student.id) ?? current.students.find((entry) =>
+            entry.name.toLocaleLowerCase('es') === student.name.toLocaleLowerCase('es') && entry.course === student.course
+            && (!entry.rut || !student.rut || entry.rut === student.rut));
+        const id = match?.id ?? student.id;
+        studentIds.set(student.id, id);
+        if (!match) students.set(id, student);
+    }
+    const tutors = new Map(previous.tutors.map((tutor) => [tutor.course, tutor]));
+    for (const tutor of current.tutors) tutors.set(tutor.course, tutor);
+    const merge = (active, old, key) => {
+        const items = new Map(active.map((row) => [row[key], row]));
+        for (const row of old) {
+            if (studentIds.has(row.studentId) && !items.has(row[key])) {
+                items.set(row[key], { ...row, studentId: studentIds.get(row.studentId) });
+            }
+        }
+        return Array.from(items.values());
+    };
+    return { ...current, students: Array.from(students.values()), tutors: Array.from(tutors.values()),
+        folios: merge(current.folios, previous.folios, 'code'),
+        validations: merge(current.validations, previous.validations ?? [], 'id') };
+}
+
+export async function migrateLegacy(session, password) {
+    if (!session.privateKey) throw new Error('La recuperación está disponible para Administración.');
     const legacy = await read('vault');
     if (!legacy) throw new Error('No hay fichas de la versión anterior en este navegador.');
     const data = await unlockLegacy(password, legacy);
-    return saveVault({ ...account, revision: 0, data: emptyData() }, data, legacy.revision);
+    return saveVault({ ...session, recoveredLegacyRevision: legacy.revision, canRecoverLegacy: false },
+        mergeRecovery(session.data, data), legacy.revision);
+}
+
+export async function exportEncryptedBackup(session) {
+    if (!session.privateKey) throw new Error('El respaldo está disponible para Administración.');
+    const envelope = await read(vaultSlot);
+    const pack = (section) => section ? { iv: encodeBytes(section.iv), ciphertext: encodeBytes(section.ciphertext) } : null;
+    return JSON.stringify({ format: 'student-finder-backup', version: 1,
+        shared: pack(envelope.shared), private: pack(envelope.private) });
+}
+
+export async function restoreEncryptedBackup(session, file) {
+    if (!session.privateKey) throw new Error('La restauración está disponible para Administración.');
+    if (file.size > 32 * 1024 * 1024) throw new Error('El respaldo supera los 32 MB.');
+    let backup;
+    try {
+        backup = JSON.parse(await file.text());
+        if (backup?.format !== 'student-finder-backup' || backup.version !== 1) throw new Error();
+    } catch {
+        throw new Error('Selecciona un respaldo cifrado de Student Finder.');
+    }
+    const decode = (section) => section ? { iv: decodeBytes(section.iv), ciphertext: decodeBytes(section.ciphertext) } : null;
+    const previous = await readData(session, { shared: decode(backup.shared), private: decode(backup.private) });
+    return saveVault(session, mergeRecovery(session.data, previous));
 }
 
 async function codeHash(code) {
@@ -202,19 +309,26 @@ export async function saveVault(session, data, expectedLegacyRevision) {
     const admin = Boolean(session.privateKey);
     const revision = session.revision + 1;
     const submitted = admin ? data.students : withAcademicChanges(session.data.students, data.students);
-    const students = submitted.map(({ id, name, course, ...contacts }) => ({
-        id, name, course, ...pick(contacts, academicFields)
-    }));
+    const students = submitted.map((student) => pick(student, ['id', 'name', 'course', 'given_names', 'family_names', ...academicFields]));
     const tutors = admin ? data.tutors : session.data.tutors;
-    const shared = await encryptData(session.sharedKey, { students, tutors }, 'fichas:v2');
+    const studentIds = new Set(students.map(({ id }) => id));
+    const existingIds = new Set(session.data.validations.map(({ id }) => id));
+    const proposed = admin ? data.validations : [...session.data.validations,
+        ...data.validations.filter(({ id }) => !existingIds.has(id))];
+    const validations = proposed.filter(({ studentId }) => studentIds.has(studentId)).map((record) => pick(record, validationFields));
+    const shared = await encryptData(session.sharedKey, { students, tutors, validations }, 'fichas:v2');
     const privateData = admin ? {
-        financial: Object.fromEntries(submitted.map((record) => [record.id, pick(record, financialFields)])),
-        folios: data.folios
+        financial: Object.fromEntries(submitted.map((record) => [record.id, pick(record, privateFields)])),
+        folios: data.folios,
+        publications: Object.fromEntries(data.validations.filter(({ studentId }) => studentIds.has(studentId))
+            .map(({ id, published, publicCode }) => [id, { published: Boolean(published), publicCode: publicCode ?? '' }]))
     } : null;
     const sealedPrivate = admin ? await encryptData(session.privateKey, privateData, 'administracion:v2') : null;
-    const published = await Promise.all((privateData?.folios ?? []).filter((folio) => folio.published).map(async (folio) => [
-        await codeHash(folio.code),
-        { annulled: folio.annulled, expiresOn: folio.expiresOn }
+    const authorized = admin ? [...data.folios.filter((folio) => folio.published),
+        ...data.validations.filter((record) => record.published && record.publicCode && studentIds.has(record.studentId))] : [];
+    const published = await Promise.all(authorized.map(async (folio) => [
+        await codeHash(folio.publicCode || folio.code),
+        { annulled: folio.annulled, state: folio.state, expiresOn: folio.expiresOn }
     ]));
     const db = await database();
     await new Promise((resolve, reject) => {
@@ -229,7 +343,8 @@ export async function saveVault(session, data, expectedLegacyRevision) {
                 return;
             }
             const write = () => {
-                store.put({ shared, private: admin ? sealedPrivate : current.result?.private ?? null, revision }, vaultSlot);
+                store.put({ shared, private: admin ? sealedPrivate : current.result?.private ?? null, revision,
+                    recoveredLegacyRevision: session.recoveredLegacyRevision }, vaultSlot);
                 if (admin) store.put(Object.fromEntries(published), publicSlot);
             };
             if (expectedLegacyRevision === undefined) {
@@ -250,7 +365,7 @@ export async function saveVault(session, data, expectedLegacyRevision) {
             ? 'Los datos cambiaron en otra pestaña. Cierra sesión y vuelve a entrar.'
             : 'No se pudieron guardar los cambios en este navegador.'));
     });
-    return { ...session, revision, data: admin ? data : { version: 1, students, tutors, folios: [] } };
+    return { ...session, revision, data: admin ? data : { version: 1, students, tutors, folios: [], validations } };
 }
 
 export function newCode() {
@@ -267,8 +382,8 @@ export function todayInChile(date = new Date()) {
 
 export function folioStatus(folio, today = todayInChile()) {
     if (!folio) return 'no_existe';
-    if (folio.annulled) return 'anulado';
-    if (folio.expiresOn && folio.expiresOn < today) return 'vencido';
+    if (folio.annulled || folio.state === 'anulado') return 'anulado';
+    if (folio.state === 'vencido' || (folio.expiresOn && folio.expiresOn < today)) return 'vencido';
     return 'vigente';
 }
 

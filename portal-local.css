@@ -22,7 +22,7 @@ body {
 p, h1, h2, h3 { margin: 0; }
 h1 { font-size: clamp(2rem, 5vw, 3.25rem); line-height: 1.07; letter-spacing: -.045em; }
 h2 { font-size: 1.35rem; line-height: 1.24; letter-spacing: -.015em; }
-input, button { font: inherit; }
+input, button, select, textarea { font: inherit; }
 :focus-visible { outline: 3px solid #267d6d; outline-offset: 3px; }
 .app-header {
     display: flex; gap: .8rem; flex-wrap: wrap; align-items: center; justify-content: space-between;
@@ -31,6 +31,7 @@ input, button { font: inherit; }
 .brand, nav, .actions { display: flex; gap: .65rem; align-items: center; flex-wrap: wrap; }
 .brand { flex-wrap: nowrap; }
 .brand strong { letter-spacing: -.035em; font-size: 1.13rem; }
+.connected-user { color: var(--muted); font-size: .9rem; font-weight: 650; }
 .brand-mark {
     display: grid;
     place-items: center;
@@ -62,6 +63,7 @@ input, button { font: inherit; }
     transform-origin: left center;
 }
 main { width: min(70rem, 100%); margin: 0 auto; padding: clamp(1rem, 6vw, 5rem) clamp(1rem, 4vw, 2.5rem); }
+main.external-main { max-width: 43rem; }
 .entry {
     display: grid;
     grid-template-columns: 1.08fr 1fr;
@@ -105,7 +107,7 @@ main { width: min(70rem, 100%); margin: 0 auto; padding: clamp(1rem, 6vw, 5rem) 
 .message:empty, .list:empty, .import-notes:empty { display: none; }
 label { display: grid; gap: .28rem; color: var(--ink); font-size: .875rem; font-weight: 670; }
 label.check { display: flex; align-items: center; gap: .45rem; }
-input:not([type="checkbox"]) {
+input:not([type="checkbox"]), select, textarea {
     width: 100%; min-width: 0; min-height: 44px; padding: .55rem .7rem; color: var(--ink);
     background: var(--paper); border: 1px solid #9db3aa; border-radius: .45rem;
 }
@@ -115,12 +117,21 @@ input[readonly] { background: #f3f7f4; }
     background: var(--paper); color: var(--ink); font-size: .9rem; font-weight: 650; cursor: pointer;
     transition: background-color .15s, border-color .15s;
 }
+a.button { display: inline-flex; align-items: center; text-decoration: none; }
 .button.primary { border-color: var(--green); background: var(--green); color: var(--paper); }
 .button.primary:hover { background: var(--green-dark); }
 .button.secondary { border-color: #b8cfc4; color: var(--green-dark); }
 .button.danger { color: var(--danger); }
 .button:disabled { opacity: .55; cursor: default; }
 .workspace-heading { display: flex; align-items: end; justify-content: space-between; gap: .85rem; flex-wrap: wrap; }
+.welcome h1 { font-size: clamp(1.95rem, 5vw, 3rem); }
+.welcome .muted { margin-top: .55rem; }
+.search-field input { min-height: 54px; font-size: 1.05rem; }
+.result-count { font-weight: 700; color: var(--green-dark); }
+.result-line { min-width: 0; display: grid; gap: .1rem; }
+.validation-detail { flex: 1 1 18rem; display: grid; gap: .25rem; overflow-wrap: anywhere; }
+.validation-detail p { white-space: pre-wrap; }
+.form-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
 .eyebrow { color: var(--green); font-size: .82rem; font-weight: 750; margin-bottom: .35rem; }
 .import-notes { font-size: .9rem; }
 .list { margin: 0; padding: 0; list-style: none; }
@@ -146,4 +157,5 @@ legend { font-weight: 650; }
     .entry-info { padding: 1.5rem; }
     .entry-info h1 { max-width: 19ch; font-size: clamp(2.2rem, 8vw, 3rem); }
 }
+@media (max-width: 30rem) { .form-pair { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .button { transition: none; } }

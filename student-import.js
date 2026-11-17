@@ -3,6 +3,7 @@ const studentFields = {
     academic_name: 'academicName', academic_phone: 'academicPhone', academic_email: 'academicEmail',
     financial_name: 'financialName', financial_phone: 'financialPhone', financial_email: 'financialEmail'
 };
+const studentNameColumns = ['NOMBRE', 'NOMBRE_COMPLETO', 'ALUMNO', 'ESTUDIANTE', 'NOMBRE_ALUMNO', 'NOMBRE_DEL_ALUMNO'];
 
 function clean(value) {
     const text = String(value ?? '').trim().replace(/\s+/g, ' ');
@@ -51,13 +52,14 @@ function rosterFromExcel(buffer) {
     const legacyHeader = (header) => header.includes('NOMBRES_ALUMNO')
         && header.some((name) => /^CURSO(?:_\d{4})?$/.test(name)) && header.includes('LETRA');
     const simpleHeader = (header) => header.includes('CURSO')
-        && header.some((name) => ['NOMBRE', 'NOMBRE_COMPLETO', 'ESTUDIANTE'].includes(name));
+        && header.some((name) => studentNameColumns.includes(name));
     const headerIndex = rows.slice(0, 20).findIndex((row) => {
         const header = headersFor(row);
         return legacyHeader(header) || simpleHeader(header);
     });
     if (headerIndex < 0) throw new Error('Faltan las columnas Nombre y Curso o los encabezados del archivo del buscador local.');
     const headers = headersFor(rows[headerIndex]);
+    const rutColumn = headers.findIndex((label) => /^(?:RUT|RUN)(?:_(?:DEL_)?(?:ALUMNO|ESTUDIANTE))?$/.test(label));
     const source = rows.slice(headerIndex + 1).filter((row) => row?.some((cell) => clean(cell)));
     const column = (title, fallback) => {
         const index = headers.indexOf(normalized(title).replace(/\s+/g, '_'));
@@ -65,10 +67,10 @@ function rosterFromExcel(buffer) {
     };
     const emails = headers.flatMap((header, index) => header === 'CORREO' ? [index] : []);
     if (!legacyHeader(headers)) {
-        const first = headers.findIndex((label) => ['NOMBRE', 'NOMBRE_COMPLETO', 'ESTUDIANTE'].includes(label));
+        const first = headers.findIndex((label) => studentNameColumns.includes(label));
         const second = headers.indexOf('CURSO');
         const students = source.map((row) => ({
-            name: clean(row[first]), course: normalizeCourse(row[second]),
+            name: clean(row[first]), course: normalizeCourse(row[second]), rut: clean(row[rutColumn]),
             academic_name: clean(row[column('APODERADO_ACADÉMICO', -1)]),
             academic_phone: clean(row[column('TELÉFONO_ACADÉMICO', -1)]),
             academic_email: clean(row[column('CORREO_ACADÉMICO', -1)]),
@@ -96,6 +98,7 @@ function rosterFromExcel(buffer) {
         const recognized = course.map(normalizeCourse).find((value) => /^[1-8](?:EM)?-[A-Z]$/.test(value));
         return {
             name: cell('first') ? join('first', 'last', 'second') : '', course: recognized || course[0] || course[1],
+            rut: clean(row[rutColumn]),
             academic_name: join('acad', 'acadLast', 'acadSecond'), academic_phone: cell('acadPhone'),
             academic_email: cell('acadEmail'), financial_name: join('finance', 'financeLast', 'financeSecond'),
             financial_phone: cell('financePhone'), financial_email: cell('financeEmail')

@@ -6,10 +6,10 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
     <title>Student Finder</title>
-    <link rel="stylesheet" href="portal-local.css?v=7">
+    <link rel="stylesheet" href="portal-local.css?v=8">
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
         integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous" defer></script>
-    <script type="module" src="portal-local.js?v=7"></script>
+    <script type="module" src="portal-local.js?v=8"></script>
 </head>
 <body>
     <header class="app-header">
@@ -18,6 +18,9 @@
             <strong>Student Finder</strong>
         </div>
         <nav aria-label="Menú principal">
+            <a class="button secondary" href="validacion.html" target="_blank" rel="noopener">Validación Externa</a>
+            <span id="connected-user" class="connected-user" hidden></span>
+            <button id="load-data" class="button primary" type="button" hidden>+ Cargar datos</button>
             <button id="logout" class="button" type="button" hidden>Cerrar sesión</button>
         </nav>
     </header>
@@ -42,6 +45,7 @@
                     </label>
                     <button id="reveal" class="button secondary" type="button" aria-pressed="false">Mostrar contraseña</button>
                 </div>
+                <label class="check"><input name="remember" type="checkbox"> Recordarme</label>
                 <button id="enter" class="button primary" type="submit" disabled>Entrar</button>
                 <p id="login-status" class="message" role="status"></p>
                 <noscript>Activa JavaScript para usar el portal.</noscript>
@@ -49,39 +53,57 @@
         </section>
 
         <section id="workspace" class="stack workspace" hidden>
-            <div class="workspace-heading">
-                <div><p class="eyebrow" id="role-label"></p><h1>Buscar estudiantes</h1></div>
+            <div class="workspace-heading welcome">
+                <div>
+                    <p class="eyebrow" id="role-label"></p>
+                    <h1>Bienvenido al Sistema de Validaciones</h1>
+                    <p class="muted" id="welcome-message"></p>
+                </div>
                 <div class="actions">
-                    <button id="open-import" class="button primary" type="button" hidden>Cargar datos de Excel</button>
+                    <button id="open-import" class="button secondary" type="button" hidden>Cargar datos de Excel</button>
                     <button id="new-student" class="button secondary" type="button">Nuevo estudiante</button>
                     <button id="open-validation" class="button secondary" type="button" aria-haspopup="dialog">Validar folio</button>
                 </div>
             </div>
             <input id="import-file" type="file" accept=".xlsx,.xls,.json" aria-label="Archivo de estudiantes" hidden>
-            <section class="panel stack" aria-label="Buscador">
-                <label>Nombre, curso o apoderado
+            <section class="panel stack" aria-labelledby="search-title">
+                <h2 id="search-title">Buscar alumnos</h2>
+                <label class="search-field"><span id="search-label">Nombre, apellido, curso o folio</span>
                     <input id="search" type="search" placeholder="Escribe para buscar" autocomplete="off" maxlength="160">
                 </label>
-                <p id="student-count" class="muted"></p>
                 <p id="import-status" class="message" role="status" aria-atomic="true"></p>
                 <p id="import-notes" class="muted import-notes"></p>
-                <p id="search-status" class="muted" role="status"></p>
+                <p id="search-status" class="result-count" role="status">0 resultados encontrados</p>
+                <p id="empty-results" class="muted" hidden>Actualmente no existen alumnos registrados. Para comenzar, presiona el botón Cargar datos.</p>
                 <ul id="results" class="list" aria-label="Resultados de búsqueda"></ul>
             </section>
             <section id="student-card" class="panel stack" hidden>
-                <div><h2 id="student-name"></h2><p id="student-course" class="muted"></p></div>
+                <div><h2 id="student-name"></h2><p id="student-course" class="muted"></p><p id="student-rut" class="muted" hidden></p></div>
                 <div id="contact-cards" class="contact-cards"></div>
                 <div class="actions">
                     <button id="edit-student" class="button secondary" type="button">Editar ficha</button>
                     <button id="copy-student" class="button secondary" type="button">Copiar ficha</button>
+                    <button id="add-validation" class="button primary" type="button">Agregar validación</button>
                     <button id="make-folio" class="button primary" type="button" hidden>Generar folio</button>
                     <button id="remove-student" class="button danger" type="button" hidden>Eliminar</button>
                 </div>
+                <h3>Historial de validaciones</h3>
+                <ul id="student-history" class="list" aria-label="Historial de validaciones"></ul>
             </section>
             <details id="admin-folios" class="panel" hidden>
                 <summary>Folios generados</summary>
                 <p class="muted">Solo se muestra el estado a quien consulta por folio.</p>
                 <ul id="folio-list" class="list" aria-label="Folios generados"></ul>
+            </details>
+            <details class="panel" id="admin-backups" hidden>
+                <summary>Respaldos y recuperación</summary>
+                <div class="actions">
+                    <button id="backup-export" class="button secondary" type="button">Descargar respaldo cifrado</button>
+                    <button id="backup-open" class="button secondary" type="button">Importar respaldo cifrado</button>
+                    <button id="recover-legacy" class="button secondary" type="button" hidden>Recuperar fichas anteriores</button>
+                </div>
+                <input id="backup-file" type="file" accept=".json,application/json" aria-label="Respaldo cifrado" hidden>
+                <p id="backup-status" class="message" role="status"></p>
             </details>
             <p id="workspace-status" class="message" role="status"></p>
         </section>
@@ -100,6 +122,55 @@
                 <button type="button" class="button close">Volver</button>
             </div>
             <p class="muted">Para subir estudiantes, entra al buscador y usa <strong>Cargar datos de Excel</strong>.</p>
+        </form>
+    </dialog>
+
+    <dialog id="password-dialog" aria-labelledby="password-title">
+        <form id="password-change" class="stack">
+            <h2 id="password-title">Cambia tu contraseña temporal</h2>
+            <p class="muted">Elige una contraseña nueva de al menos 12 caracteres para esta cuenta en este navegador.</p>
+            <label>Nueva contraseña <input name="password" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label>
+            <label>Repite la contraseña <input name="confirmation" type="password" minlength="12" maxlength="256" autocomplete="new-password" required></label>
+            <p id="password-status" class="message" role="status"></p>
+            <div class="actions">
+                <button type="submit" class="button primary">Guardar y entrar</button>
+                <button type="button" class="button close">Volver</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog id="record-dialog" aria-labelledby="record-title">
+        <form id="record-form" class="stack">
+            <h2 id="record-title">Cargar datos</h2>
+            <p id="record-student" class="muted" hidden></p>
+            <fieldset id="record-person">
+                <legend>Alumno</legend>
+                <div class="form-pair">
+                    <label>Nombre <input name="given_names" required maxlength="100"></label>
+                    <label>Apellidos <input name="family_names" required maxlength="100"></label>
+                    <label id="record-rut">RUT <input name="rut" maxlength="16" placeholder="12.345.678-K"></label>
+                    <label>Curso <input name="course" maxlength="80"></label>
+                </div>
+            </fieldset>
+            <fieldset>
+                <legend>Validación</legend>
+                <div class="form-pair">
+                    <label>Código o folio <input name="code" maxlength="64" placeholder="Se genera si lo dejas vacío"></label>
+                    <label>Tipo de validación <input name="type" required maxlength="80"></label>
+                    <label>Fecha de emisión <input name="issuedOn" type="date" required></label>
+                    <label>Fecha de vencimiento <input name="expiresOn" type="date"></label>
+                </div>
+                <label>Estado
+                    <select name="state"><option value="vigente">Vigente</option><option value="vencido">Vencido</option><option value="anulado">Anulado</option></select>
+                </label>
+                <label>Observaciones <textarea name="notes" rows="3" maxlength="1000"></textarea></label>
+                <label class="check" id="publish-validation"><input name="published" type="checkbox"> Autorizar Validación Externa</label>
+            </fieldset>
+            <p id="record-status" class="message" role="status"></p>
+            <div class="actions">
+                <button type="submit" class="button primary">Guardar validación</button>
+                <button type="button" class="button close">Cancelar</button>
+            </div>
         </form>
     </dialog>
 
@@ -136,7 +207,8 @@
         <form id="student-form" class="stack">
             <h2 id="student-title">Ficha del estudiante</h2>
             <label>Nombre completo <input name="name" required maxlength="200"></label>
-            <label>Curso <input name="course" required maxlength="80"></label>
+            <label>Curso <input name="course" maxlength="80"></label>
+            <label id="student-rut-input">RUT <input name="rut" maxlength="16"></label>
             <fieldset>
                 <legend>Apoderado académico</legend>
                 <label>Nombre <input name="academic_name" maxlength="200"></label>

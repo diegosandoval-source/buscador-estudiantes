@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <title>Validación Externa · Student Finder</title>
+    <link rel="stylesheet" href="portal-local.css?v=8">
+    <script type="module" src="validacion.js?v=8"></script>
+</head>
+<body>
+    <header class="app-header">
+        <div class="brand">
+            <span class="brand-mark" aria-hidden="true"><span class="brand-lens"></span></span>
+            <strong>Student Finder</strong>
+        </div>
+        <a class="button secondary" href="./">Volver al inicio</a>
+    </header>
+    <main class="external-main">
+        <section class="panel stack">
+            <h1>Validación Externa</h1>
+            <p class="muted">Consulta el estado de los folios autorizados en este navegador.</p>
+            <form id="public-validation" class="stack">
+                <label>Código público o folio
+                    <input name="code" required maxlength="40" spellcheck="false" autocomplete="off" autocapitalize="none">
+                </label>
+                <button class="button primary" type="submit">Consultar estado</button>
+            </form>
+            <p class="message" id="public-status" role="status"></p>
+        </section>
+    </main>
+</body>
+</html>

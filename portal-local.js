@@ -1,10 +1,17 @@
-import { activateAccount, folioStatus, hasAccessFile, migrateLegacy, newCode, openAccount, saveVault, validateCode } from './local-data.js?v=7';
-import { normalizeCourse, normalized, readRoster } from './student-import.js';
+import { activateAccount, changeInitialPassword, exportEncryptedBackup, folioStatus, hasAccessFile, migrateLegacy, newCode,
+    openAccount, restoreEncryptedBackup, saveVault, todayInChile, validateCode } from './local-data.js?v=8';
+import { normalizeCourse, normalized, readRoster } from './student-import.js?v=8';
+import { displayRut, normalizeRut, resolveStudent, studentMatches, validationFromForm, validationLabels } from './validation-records.js?v=8';
 
 const get = (id) => document.getElementById(id);
 const login = get('login');
 const accessForm = get('access-form');
 const accessDialog = get('access-dialog');
+const passwordForm = get('password-change');
+const passwordDialog = get('password-dialog');
+const recordForm = get('record-form');
+const recordDialog = get('record-dialog');
+const backupFile = get('backup-file');
 const migrationForm = get('migration');
 const migrationDialog = get('migration-dialog');
 const studentForm = get('student-form');
@@ -23,12 +30,16 @@ const statusText = {
 
 let session;
 let activating = false;
-let pendingMigration;
+let pendingPasswordChange;
+let changingPassword = false;
 let migrating = false;
 let saving = false;
 let selected;
 let editing;
 let editingFolio;
+let recordStudentId;
+let recordValidationId;
+const rememberedUserKey = 'student-finder-remembered-user';
 
 function text(tag, value) {
     const node = document.createElement(tag);
@@ -66,6 +77,11 @@ function configureLogin() {
         showMessage('login-status', 'Abre esta página en un navegador actualizado mediante HTTPS.');
         return;
     }
+    try {
+        const remembered = localStorage.getItem(rememberedUserKey);
+        login.elements.username.value = remembered ?? login.elements.username.value;
+        login.elements.remember.checked = Boolean(remembered);
+    } catch { /* El acceso funciona sin preferencias guardadas. */ }
     get('enter').disabled = false;
 }
 
@@ -86,8 +102,18 @@ function openWorkspace(nextSession) {
     get('entry').hidden = true;
     get('workspace').hidden = false;
     get('logout').hidden = false;
-    for (const id of ['admin-folios', 'make-folio', 'remove-student', 'open-import']) get(id).hidden = !admin;
+    get('load-data').hidden = false;
+    get('connected-user').hidden = false;
+    for (const id of ['admin-folios', 'make-folio', 'remove-student', 'open-import', 'admin-backups']) get(id).hidden = !admin;
+    get('recover-legacy').hidden = !nextSession.canRecoverLegacy;
     showMessage('role-label', admin ? 'Administración' : 'Enfermería');
+    showMessage('connected-user', nextSession.username);
+    showMessage('welcome-message', admin ? 'Hola, Administrador. Has iniciado sesión correctamente.' : 'Hola, Enfermería. Has iniciado sesión correctamente.');
+    showMessage('search-label', admin ? 'Nombre, apellido, RUT, curso o folio' : 'Nombre, apellido, curso o folio');
+    try {
+        if (login.elements.remember.checked) localStorage.setItem(rememberedUserKey, nextSession.username);
+        else localStorage.removeItem(rememberedUserKey);
+    } catch { /* El acceso funciona sin preferencias guardadas. */ }
     render();
     search.focus();
 }
@@ -98,10 +124,11 @@ function clearLoginPassword() {
 }
 
 function completeLogin(result) {
-    if (result.migration) {
-        pendingMigration = result.migration;
-        showMessage('migration-status', '');
-        migrationDialog.showModal();
+    if (result.passwordChange) {
+        pendingPasswordChange = result.passwordChange;
+        passwordForm.reset();
+        showMessage('password-status', '');
+        passwordDialog.showModal();
         return;
     }
     openWorkspace(result.session);
@@ -151,8 +178,37 @@ handleSubmit(accessForm, 'access-status', async () => {
     }
 });
 
+passwordDialog.addEventListener('close', () => {
+    pendingPasswordChange = null;
+    passwordForm.reset();
+});
+passwordDialog.addEventListener('cancel', (event) => {
+    if (changingPassword) event.preventDefault();
+});
+
+handleSubmit(passwordForm, 'password-status', async () => {
+    if (!pendingPasswordChange) return;
+    const password = passwordForm.elements.password.value;
+    if (password !== passwordForm.elements.confirmation.value) throw new Error('Las contraseñas no coinciden.');
+    const back = passwordForm.querySelector('.close');
+    changingPassword = true;
+    back.disabled = true;
+    try {
+        const result = await changeInitialPassword(pendingPasswordChange, password);
+        passwordDialog.close();
+        completeLogin(result);
+    } finally {
+        changingPassword = false;
+        back.disabled = false;
+    }
+});
+
+get('recover-legacy').addEventListener('click', () => {
+    if (!isAdmin() || !session.canRecoverLegacy || saving) return;
+    showMessage('migration-status', '');
+    migrationDialog.showModal();
+});
 migrationDialog.addEventListener('close', () => {
-    pendingMigration = null;
     migrationForm.reset();
 });
 migrationDialog.addEventListener('cancel', (event) => {
@@ -160,14 +216,15 @@ migrationDialog.addEventListener('cancel', (event) => {
 });
 
 handleSubmit(migrationForm, 'migration-status', async () => {
-    if (!pendingMigration) return;
+    if (!isAdmin() || !session.canRecoverLegacy || saving) return;
     migrating = true;
     const back = migrationForm.querySelector('.close');
     back.disabled = true;
     try {
-        const next = await migrateLegacy(pendingMigration, migrationForm.elements.previousPassword.value);
+        session = await migrateLegacy(session, migrationForm.elements.previousPassword.value);
         migrationDialog.close();
-        openWorkspace(next);
+        get('recover-legacy').hidden = true;
+        render();
         showMessage('workspace-status', 'Se recuperaron las fichas y los folios anteriores.');
     } finally {
         back.disabled = false;
@@ -181,21 +238,26 @@ get('logout').addEventListener('click', () => {
     selected = null;
     editing = null;
     editingFolio = null;
+    recordStudentId = null;
+    recordValidationId = null;
     importFile.value = '';
     studentForm.reset();
     folioForm.reset();
+    recordForm.reset();
     validationForm.reset();
     login.reset();
     search.value = '';
-    for (const id of ['results', 'contact-cards', 'folio-list']) get(id).replaceChildren();
-    for (const id of ['student-name', 'student-course', 'student-count', 'search-status', 'workspace-status',
-        'import-status', 'import-notes', 'student-status', 'folio-status', 'validation-status']) showMessage(id, '');
+    for (const id of ['results', 'contact-cards', 'folio-list', 'student-history']) get(id).replaceChildren();
+    for (const id of ['student-name', 'student-course', 'student-rut', 'connected-user', 'search-status', 'workspace-status',
+        'import-status', 'import-notes', 'student-status', 'folio-status', 'validation-status', 'backup-status']) showMessage(id, '');
     get('folio-code').value = '';
     get('folio-result').hidden = true;
-    for (const dialog of [studentDialog, folioDialog, validationDialog]) if (dialog.open) dialog.close();
+    for (const dialog of [studentDialog, folioDialog, validationDialog, recordDialog]) if (dialog.open) dialog.close();
     get('student-card').hidden = true;
     get('workspace').hidden = true;
     get('logout').hidden = true;
+    get('connected-user').hidden = true;
+    get('load-data').hidden = true;
     get('entry').hidden = false;
     get('enter').disabled = true;
     configureLogin();
@@ -213,10 +275,26 @@ async function persist(data) {
     }
 }
 
-function asResult(record) {
+function histories() {
+    const byStudent = new Map();
+    const legacy = session.data.folios.map((folio) => ({ ...folio, type: 'Folio de validación', legacy: true }));
+    for (const record of [...session.data.validations, ...legacy]) {
+        if (!byStudent.has(record.studentId)) byStudent.set(record.studentId, []);
+        byStudent.get(record.studentId).push(record);
+    }
+    return byStudent;
+}
+
+function asResult(record, history) {
     const item = document.createElement('li');
-    item.append(text('strong', record.name), text('span', record.course),
-        action('Ver ficha', () => {
+    const description = document.createElement('div');
+    description.className = 'result-line';
+    const states = [...new Set(history.map((entry) => validationLabels[folioStatus(entry)]))];
+    const detail = [record.course, isAdmin() && record.rut ? 'RUT ' + displayRut(record.rut) : '',
+        `${history.length} ${history.length === 1 ? 'validación' : 'validaciones'}`, ...states].filter(Boolean).join(' · ');
+    description.append(text('strong', record.name), text('span', detail));
+    item.append(description,
+        action('Ver detalle', () => {
             selected = record.id;
             renderStudent();
             get('student-card').scrollIntoView({ block: 'nearest' });
@@ -226,22 +304,39 @@ function asResult(record) {
 
 function renderResults() {
     if (!session) return;
-    const terms = normalized(search.value).split(/\s+/).filter(Boolean);
-    const matches = session.data.students.filter((record) => {
-        const haystack = normalized([record.name, record.course, record.academic_name, record.financial_name].join(' '));
-        return terms.every((term) => haystack.includes(term));
-    });
+    const byStudent = histories();
+    const matches = session.data.students.filter((record) => studentMatches(record, byStudent.get(record.id) ?? [], search.value));
     matches.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
-    get('results').replaceChildren(...matches.slice(0, 30).map(asResult));
-    const emptyMessage = isAdmin() && !session.data.students.length
-        ? 'Usa Cargar datos de Excel para agregar tus primeras fichas.'
-        : 'No se encontraron fichas.';
-    showMessage('search-status', matches.length > 30 ? `Mostrando 30 de ${matches.length} fichas. Acota la búsqueda.`
-        : matches.length ? `${matches.length} ${matches.length === 1 ? 'ficha' : 'fichas'}` : emptyMessage);
+    get('results').replaceChildren(...matches.slice(0, 30).map((record) => asResult(record, byStudent.get(record.id) ?? [])));
+    get('empty-results').hidden = Boolean(session.data.students.length);
+    const count = `${matches.length} ${matches.length === 1 ? 'resultado encontrado' : 'resultados encontrados'}`;
+    showMessage('search-status', matches.length > 30 ? `${count}. Se muestran 30.` : count);
 }
 
 function selectedStudent() {
     return session?.data.students.find((record) => record.id === selected);
+}
+
+function historyItem(record) {
+    const item = document.createElement('li');
+    const content = document.createElement('div');
+    content.className = 'validation-detail';
+    content.append(text('strong', record.type), text('p', [record.code, validationLabels[folioStatus(record)]].join(' · ')));
+    const dates = [record.issuedOn && 'Emisión ' + record.issuedOn, record.expiresOn && 'Vence ' + record.expiresOn].filter(Boolean);
+    if (dates.length) content.append(text('p', dates.join(' · ')));
+    if (record.notes) content.append(text('p', record.notes));
+    item.append(content);
+    if (isAdmin()) {
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        if (record.published && record.publicCode) {
+            actions.append(action('Copiar código público', () => copy(record.publicCode, 'workspace-status')));
+        }
+        actions.append(action('Editar', () => record.legacy ? openFolio(record) : openRecord(selectedStudent(), record)));
+        if (!record.legacy) actions.append(action('Eliminar', () => removeValidation(record)));
+        item.append(actions);
+    }
+    return item;
 }
 
 function contacts(record) {
@@ -259,6 +354,8 @@ function renderStudent() {
     get('student-card').hidden = !record;
     showMessage('student-name', record?.name ?? '');
     showMessage('student-course', record?.course ?? '');
+    get('student-rut').hidden = !isAdmin() || !record?.rut;
+    showMessage('student-rut', record?.rut && isAdmin() ? 'RUT ' + displayRut(record.rut) : '');
     const cards = record ? contacts(record).map(([label, entries]) => {
         const section = document.createElement('section');
         const lines = entries.filter(Boolean);
@@ -266,6 +363,8 @@ function renderStudent() {
         return section;
     }) : [];
     get('contact-cards').replaceChildren(...cards);
+    const history = record ? (histories().get(record.id) ?? []).slice().reverse() : [];
+    get('student-history').replaceChildren(...(history.length ? history.map(historyItem) : [text('li', 'Aún no hay validaciones registradas.')]));
 }
 
 function renderFolios() {
@@ -284,7 +383,6 @@ function renderFolios() {
 }
 
 function render() {
-    showMessage('student-count', `${session.data.students.length} estudiantes guardados en este navegador`);
     renderResults();
     renderStudent();
     renderFolios();
@@ -309,6 +407,8 @@ function openStudent(record) {
     studentForm.elements.course.readOnly = !canEditIdentity;
     get('financial-fields').hidden = !isAdmin();
     get('financial-fields').disabled = !isAdmin();
+    get('student-rut-input').hidden = !isAdmin();
+    studentForm.elements.rut.disabled = !isAdmin();
     showMessage('student-status', '');
     if (record) {
         for (const input of studentForm.querySelectorAll('input[name]')) {
@@ -327,10 +427,17 @@ for (const field of fields) studentForm.elements['academic_' + field].addEventLi
 handleSubmit(studentForm, 'student-status', async () => {
     const record = Object.fromEntries(Array.from(new FormData(studentForm), ([key, value]) => [key, value.trim()]));
     record.course = normalizeCourse(record.course);
-    if (!record.name || !record.course) throw new Error('Completa el nombre y el curso.');
+    if (!record.name) throw new Error('Completa el nombre.');
+    if (isAdmin()) {
+        record.rut = normalizeRut(record.rut);
+        if (record.rut && !/^\d{1,8}[\dK]$/.test(record.rut)) throw new Error('Revisa el formato del RUT.');
+        if (record.rut && session.data.students.some((item) => item.id !== editing && normalizeRut(item.rut) === record.rut)) {
+            throw new Error('Ya existe una ficha con este RUT.');
+        }
+    }
     record.id = editing ?? crypto.randomUUID();
     const old = session.data;
-    const students = editing ? old.students.map((item) => item.id === editing ? record : item) : [...old.students, record];
+    const students = editing ? old.students.map((item) => item.id === editing ? { ...item, ...record } : item) : [...old.students, record];
     await persist({ ...old, students });
     selected = record.id;
     studentDialog.close();
@@ -345,7 +452,8 @@ get('remove-student').addEventListener('click', async () => {
         const old = session.data;
         await persist({ ...old,
             students: old.students.filter((item) => item.id !== record.id),
-            folios: old.folios.filter((folio) => folio.studentId !== record.id)
+            folios: old.folios.filter((folio) => folio.studentId !== record.id),
+            validations: old.validations.filter((validation) => validation.studentId !== record.id)
         });
         selected = null;
         render();
@@ -364,9 +472,72 @@ async function copy(value, status) {
 
 get('copy-student').addEventListener('click', () => {
     const record = selectedStudent();
-    if (record) copy([record.name, record.course, ...contacts(record).flatMap(([label, values]) =>
+    if (record) copy([record.name, record.course, isAdmin() ? displayRut(record.rut) : '', ...contacts(record).flatMap(([label, values]) =>
         [label, ...values.filter(Boolean)])].join('\n'), 'workspace-status');
 });
+
+function openRecord(student = null, record = null) {
+    if (!session || (record && !isAdmin())) return;
+    recordStudentId = student?.id ?? '';
+    recordValidationId = record?.id ?? '';
+    recordForm.reset();
+    get('record-person').hidden = Boolean(student);
+    get('record-person').disabled = Boolean(student);
+    get('record-student').hidden = !student;
+    showMessage('record-student', student ? [student.name, student.course].filter(Boolean).join(' · ') : '');
+    get('record-rut').hidden = !isAdmin();
+    recordForm.elements.rut.disabled = !isAdmin();
+    get('publish-validation').hidden = !isAdmin();
+    recordForm.elements.published.disabled = !isAdmin();
+    showMessage('record-title', record ? 'Editar validación' : 'Cargar datos');
+    showMessage('record-status', '');
+    recordForm.elements.issuedOn.value = record?.issuedOn || todayInChile();
+    for (const key of ['code', 'type', 'expiresOn', 'state', 'notes']) {
+        if (record) recordForm.elements[key].value = record[key] ?? '';
+    }
+    recordForm.elements.published.checked = Boolean(record?.published);
+    recordDialog.showModal();
+}
+
+get('load-data').addEventListener('click', () => openRecord());
+get('add-validation').addEventListener('click', () => { if (selectedStudent()) openRecord(selectedStudent()); });
+
+handleSubmit(recordForm, 'record-status', async () => {
+    if (!session) return;
+    const before = session.data;
+    const fields = Object.fromEntries(new FormData(recordForm));
+    const previous = before.validations.find((record) => record.id === recordValidationId);
+    if (recordValidationId && (!previous || !isAdmin())) throw new Error('La validación ya no está disponible para editar.');
+    const student = resolveStudent(before.students, fields, recordStudentId);
+    const entry = validationFromForm(fields, student.id, previous, isAdmin(), newCode);
+    const alreadyUsed = [...before.validations, ...before.folios].some((item) =>
+        (!previous || item.id !== previous.id) && normalized(item.code) === normalized(entry.code));
+    if (alreadyUsed) throw new Error('Ese código ya pertenece a una validación. Usa otro código.');
+    let students = before.students;
+    if (!students.some(({ id }) => id === student.id)) students = [...students, student];
+    else if (isAdmin() && !student.rut && fields.rut) {
+        students = students.map((item) => item.id === student.id ? { ...item, rut: normalizeRut(fields.rut) } : item);
+    }
+    const validations = previous ? before.validations.map((item) => item.id === previous.id ? entry : item)
+        : [...before.validations, entry];
+    await persist({ ...before, students, validations });
+    recordDialog.close();
+    search.value = '';
+    selected = student.id;
+    render();
+    showMessage('workspace-status', 'Validación guardada.');
+    search.focus();
+});
+
+async function removeValidation(record) {
+    if (!isAdmin() || !confirm('¿Eliminar esta validación y retirar su consulta externa?')) return;
+    try {
+        const old = session.data;
+        await persist({ ...old, validations: old.validations.filter(({ id }) => id !== record.id) });
+        render();
+        showMessage('workspace-status', 'Validación eliminada.');
+    } catch (error) { showMessage('workspace-status', error.message); }
+}
 
 function studentKey(record) {
     return normalized(record.name) + '\u0000' + normalized(record.course);
@@ -374,6 +545,7 @@ function studentKey(record) {
 
 export function reviewRoster(roster, saved) {
     const seen = new Set(saved.students.map(studentKey));
+    const ruts = new Set(saved.students.map((record) => normalizeRut(record.rut)).filter(Boolean));
     const students = [];
     let invalid = 0;
     let duplicates = 0;
@@ -384,15 +556,17 @@ export function reviewRoster(roster, saved) {
             continue;
         }
         const key = studentKey(record);
-        if (seen.has(key)) {
+        const rut = normalizeRut(record.rut);
+        if (seen.has(key) || (rut && ruts.has(rut))) {
             duplicates++;
             continue;
         }
         seen.add(key);
+        if (rut) ruts.add(rut);
         if ([record.academic_email, record.financial_email].some((email) => email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
             questionableEmails++;
         }
-        students.push(record);
+        students.push({ ...record, rut: /^\d{1,8}[\dK]$/.test(rut) ? rut : '' });
     }
     const courses = new Set(saved.tutors.map((tutor) => tutor.course));
     const tutors = roster.tutors.filter((tutor) => {
@@ -440,6 +614,40 @@ importFile.addEventListener('change', async () => {
     } finally {
         if (importFile.files[0] === file) importFile.value = '';
         importButton.disabled = false;
+    }
+});
+
+get('backup-export').addEventListener('click', async () => {
+    if (!isAdmin() || saving) return;
+    try {
+        const payload = await exportEncryptedBackup(session);
+        const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `student-finder-respaldo-${todayInChile()}.json`;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showMessage('backup-status', 'Respaldo cifrado descargado.');
+    } catch (error) { showMessage('backup-status', error.message); }
+});
+
+get('backup-open').addEventListener('click', () => { if (isAdmin() && !saving) backupFile.click(); });
+backupFile.addEventListener('change', async () => {
+    const file = backupFile.files[0];
+    if (!file || !isAdmin() || saving) return;
+    saving = true;
+    get('logout').disabled = true;
+    try {
+        session = await restoreEncryptedBackup(session, file);
+        render();
+        showMessage('backup-status', 'Respaldo incorporado.');
+    } catch (error) { showMessage('backup-status', error.message); }
+    finally {
+        backupFile.value = '';
+        saving = false;
+        get('logout').disabled = false;
     }
 });
 
