@@ -1,8 +1,10 @@
-import { createVault, folioStatus, newCode, readVault, saveVault, unlock, validateCode } from './local-data.js';
+import { folioStatus, hasAccessFile, importAccessFile, migrateLegacy, newCode, openAccount, saveVault, validateCode } from './local-data.js?v=2';
 import { normalizeCourse, normalized, readRoster } from './student-import.js';
 
 const get = (id) => document.getElementById(id);
 const login = get('login');
+const migrationForm = get('migration');
+const migrationDialog = get('migration-dialog');
 const studentForm = get('student-form');
 const importForm = get('import');
 const folioForm = get('folio-form');
@@ -17,7 +19,8 @@ const statusText = {
 };
 
 let session;
-let needsSetup;
+let pendingMigration;
+let migrating = false;
 let saving = false;
 let selected;
 let editing;
@@ -61,54 +64,94 @@ async function configureLogin() {
         return;
     }
     try {
-        needsSetup = !(await readVault());
-        get('login-hint').textContent = needsSetup
-            ? 'Primer acceso. Crea una contraseña de al menos 12 caracteres para este navegador.'
-            : 'Usa la contraseña que creaste en este navegador.';
-        get('repeat-password').hidden = !needsSetup;
-        login.elements.confirmation.disabled = !needsSetup;
-        login.elements.confirmation.required = needsSetup;
-        login.elements.password.minLength = needsSetup ? 12 : 1;
-        login.elements.password.autocomplete = needsSetup ? 'new-password' : 'current-password';
-        get('enter').textContent = needsSetup ? 'Crear acceso e ingresar' : 'Entrar';
-        get('enter').disabled = false;
+        const ready = await hasAccessFile();
+        get('access-setup').hidden = ready;
+        get('enter').disabled = !ready;
+        return ready;
     } catch (error) {
         showMessage('login-status', error.message);
     }
 }
 
+get('choose-access').addEventListener('click', () => get('access-file').click());
+get('access-file').addEventListener('change', async (event) => {
+    const input = event.target;
+    const file = input.files[0];
+    if (!file) return;
+    get('choose-access').disabled = true;
+    try {
+        await importAccessFile(file);
+        if (await configureLogin()) {
+            showMessage('login-status', 'Archivo cargado. Ingresa con tu cuenta asignada.');
+            login.elements.username.focus();
+        }
+    } catch (error) {
+        showMessage('login-status', error.message);
+    } finally {
+        input.value = '';
+        get('choose-access').disabled = false;
+    }
+});
+
 get('reveal').addEventListener('click', () => {
     const show = login.elements.password.type === 'password';
     login.elements.password.type = show ? 'text' : 'password';
-    login.elements.confirmation.type = login.elements.password.type;
     get('reveal').setAttribute('aria-pressed', String(show));
     get('reveal').textContent = show ? 'Ocultar contraseña' : 'Mostrar contraseña';
 });
 
-handleSubmit(login, 'login-status', async () => {
-    const password = login.elements.password.value;
-    const envelope = await readVault();
-    if (needsSetup && envelope) {
-        await configureLogin();
-        throw new Error('El acceso ya fue creado en otra pestaña. Ingresa con esa contraseña.');
-    }
-    if (envelope) {
-        session = await unlock(password, envelope);
-    } else {
-        if (!needsSetup) {
-            await configureLogin();
-            throw new Error('Crea el acceso de administrador para este navegador.');
-        }
-        if (password !== login.elements.confirmation.value) throw new Error('Las contraseñas no coinciden.');
-        session = await createVault(password);
-    }
-    login.reset();
-    if (login.elements.password.type === 'text') get('reveal').click();
+function isAdmin() {
+    return Boolean(session?.privateKey);
+}
+
+function openWorkspace(nextSession) {
+    session = nextSession;
+    const admin = isAdmin();
     get('entry').hidden = true;
     get('workspace').hidden = false;
     get('logout').hidden = false;
+    for (const id of ['admin-import', 'admin-folios', 'make-folio', 'remove-student']) get(id).hidden = !admin;
+    showMessage('role-label', admin ? 'Administración' : 'Enfermería');
     render();
-    importForm.elements.file.focus();
+    (admin ? importForm.elements.file : search).focus();
+}
+
+handleSubmit(login, 'login-status', async () => {
+    const username = login.elements.username.value.trim().toLowerCase();
+    const result = await openAccount(username, login.elements.password.value);
+    login.elements.password.value = '';
+    if (login.elements.password.type === 'text') get('reveal').click();
+    if (result.migration) {
+        pendingMigration = result.migration;
+        showMessage('migration-status', '');
+        migrationDialog.showModal();
+        return;
+    }
+    openWorkspace(result.session);
+});
+
+migrationDialog.addEventListener('close', () => {
+    pendingMigration = null;
+    migrationForm.reset();
+});
+migrationDialog.addEventListener('cancel', (event) => {
+    if (migrating) event.preventDefault();
+});
+
+handleSubmit(migrationForm, 'migration-status', async () => {
+    if (!pendingMigration) return;
+    migrating = true;
+    const back = migrationForm.querySelector('.close');
+    back.disabled = true;
+    try {
+        const next = await migrateLegacy(pendingMigration, migrationForm.elements.previousPassword.value);
+        migrationDialog.close();
+        openWorkspace(next);
+        showMessage('workspace-status', 'Se recuperaron las fichas y los folios anteriores.');
+    } finally {
+        back.disabled = false;
+        migrating = false;
+    }
 });
 
 function resetImport() {
@@ -141,7 +184,8 @@ get('logout').addEventListener('click', () => {
     get('logout').hidden = true;
     get('entry').hidden = false;
     get('enter').disabled = true;
-    configureLogin().then(() => login.elements.password.focus());
+    get('enter').disabled = true;
+    configureLogin().then(() => login.elements.username.focus());
 });
 
 async function persist(data) {
@@ -185,11 +229,12 @@ function selectedStudent() {
 
 function contacts(record) {
     const tutor = session.data.tutors.find((item) => item.course === record.course);
-    return [
+    const items = [
         ['Profesor tutor', [tutor?.name, tutor?.email]],
-        ['Apoderado académico', [record.academic_name, record.academic_phone, record.academic_email]],
-        ['Apoderado de cuentas', [record.financial_name, record.financial_phone, record.financial_email]]
+        ['Apoderado académico', [record.academic_name, record.academic_phone, record.academic_email]]
     ];
+    if (isAdmin()) items.push(['Apoderado de cuentas', [record.financial_name, record.financial_phone, record.financial_email]]);
+    return items;
 }
 
 function renderStudent() {
@@ -207,6 +252,10 @@ function renderStudent() {
 }
 
 function renderFolios() {
+    if (!isAdmin()) {
+        get('folio-list').replaceChildren();
+        return;
+    }
     const names = new Map(session.data.students.map((record) => [record.id, record.name]));
     const items = session.data.folios.slice().reverse().map((folio) => {
         const item = document.createElement('li');
@@ -238,6 +287,11 @@ function syncContacts() {
 function openStudent(record) {
     editing = record?.id;
     studentForm.reset();
+    const canEditIdentity = isAdmin() || !record;
+    studentForm.elements.name.readOnly = !canEditIdentity;
+    studentForm.elements.course.readOnly = !canEditIdentity;
+    get('financial-fields').hidden = !isAdmin();
+    get('financial-fields').disabled = !isAdmin();
     showMessage('student-status', '');
     if (record) {
         for (const input of studentForm.querySelectorAll('input[name]')) {
@@ -269,7 +323,7 @@ handleSubmit(studentForm, 'student-status', async () => {
 
 get('remove-student').addEventListener('click', async () => {
     const record = selectedStudent();
-    if (!record || !confirm('¿Eliminar esta ficha y sus folios en este navegador?')) return;
+    if (!record || !isAdmin() || !confirm('¿Eliminar esta ficha y sus folios en este navegador?')) return;
     try {
         const old = session.data;
         await persist({ ...old,
@@ -339,6 +393,7 @@ importForm.elements.file.addEventListener('change', () => {
 get('import-cancel').addEventListener('click', resetImport);
 
 handleSubmit(importForm, 'import-status', async () => {
+    if (!isAdmin()) return;
     resetImport();
     const file = importForm.elements.file.files[0];
     if (!file) throw new Error('Selecciona un archivo.');
@@ -346,7 +401,7 @@ handleSubmit(importForm, 'import-status', async () => {
         throw new Error('No se cargó el lector de Excel. Vuelve a cargar la página.');
     }
     const roster = await readRoster(file);
-    if (!session || importForm.elements.file.files[0] !== file) return;
+    if (!isAdmin() || importForm.elements.file.files[0] !== file) return;
     pendingImport = reviewRoster(roster, session.data);
     const { students, tutors, invalid, duplicates, questionableEmails } = pendingImport;
     get('import-review').hidden = false;
@@ -356,7 +411,7 @@ handleSubmit(importForm, 'import-status', async () => {
 });
 
 get('import-commit').addEventListener('click', async () => {
-    if (!pendingImport || saving) return;
+    if (!isAdmin() || !pendingImport || saving) return;
     const previous = session.data;
     const batch = reviewRoster(pendingImport, previous);
     try {
@@ -372,6 +427,7 @@ get('import-commit').addEventListener('click', async () => {
 });
 
 function openFolio(record) {
+    if (!isAdmin()) return;
     editingFolio = record?.code;
     folioForm.reset();
     if (record) {
@@ -389,6 +445,7 @@ get('make-folio').addEventListener('click', () => { if (selectedStudent()) openF
 get('copy-folio').addEventListener('click', () => copy(get('folio-code').value, 'folio-status'));
 
 handleSubmit(folioForm, 'folio-status', async () => {
+    if (!isAdmin()) return;
     const old = session.data;
     const previous = old.folios.find((entry) => entry.code === editingFolio);
     const record = {

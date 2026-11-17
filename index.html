@@ -6,16 +6,16 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
     <title>Buscador de estudiantes</title>
-    <link rel="stylesheet" href="portal-local.css">
+    <link rel="stylesheet" href="portal-local.css?v=2">
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
         integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous" defer></script>
-    <script type="module" src="portal-local.js"></script>
+    <script type="module" src="portal-local.js?v=2"></script>
 </head>
 <body>
     <header class="app-header">
         <div class="brand">
             <span class="brand-mark" aria-hidden="true">BE</span>
-            <strong>Buscador de estudiantes</strong>
+            <strong>Buscador Estudiantes</strong>
         </div>
         <nav aria-label="Menú principal">
             <button id="open-validation" class="button" type="button">Validar folio</button>
@@ -25,24 +25,30 @@
     <main>
         <section id="entry" class="entry">
             <div class="entry-info">
-                <h1>Administración de estudiantes</h1>
-                <p>Carga tu Excel, revisa las fichas y genera folios de validación.</p>
+                <h1>Buscador de estudiantes</h1>
+                <p>Consulta fichas y valida folios en el portal de Administración y Enfermería.</p>
                 <p class="local-note">Las fichas y los folios se guardan en este navegador.</p>
             </div>
             <form id="login" class="panel stack" aria-describedby="login-hint">
-                <h2>Iniciar sesión</h2>
-                <p id="login-hint" class="muted">Acceso de administrador.</p>
+                <div class="login-heading">
+                    <h2>Iniciar sesión</h2>
+                    <p id="login-hint" class="muted">Ingresa con tu cuenta asignada.</p>
+                </div>
                 <label>Usuario
-                    <input name="username" value="admin" autocomplete="username" readonly>
+                    <input name="username" autocomplete="username" required maxlength="32" autocapitalize="none" spellcheck="false">
                 </label>
-                <label>Contraseña
-                    <input name="password" type="password" autocomplete="current-password" required maxlength="256">
-                </label>
-                <label id="repeat-password" hidden>Repetir contraseña
-                    <input name="confirmation" type="password" autocomplete="new-password" maxlength="256">
-                </label>
-                <button id="reveal" class="button secondary" type="button" aria-pressed="false">Mostrar contraseña</button>
+                <div class="password-field">
+                    <label>Contraseña
+                        <input name="password" type="password" autocomplete="current-password" required maxlength="256">
+                    </label>
+                    <button id="reveal" class="button secondary" type="button" aria-pressed="false">Mostrar contraseña</button>
+                </div>
                 <button id="enter" class="button primary" type="submit" disabled>Entrar</button>
+                <div id="access-setup" class="access-setup" hidden>
+                    <p class="muted">Carga el archivo de accesos una vez en este navegador.</p>
+                    <input id="access-file" type="file" accept=".json,application/json" hidden>
+                    <button id="choose-access" class="button secondary" type="button">Cargar archivo de accesos</button>
+                </div>
                 <p id="login-status" class="message" role="status"></p>
                 <noscript>Activa JavaScript para usar el portal.</noscript>
             </form>
@@ -50,10 +56,10 @@
 
         <section id="workspace" class="stack workspace" hidden>
             <div class="workspace-heading">
-                <div><p class="eyebrow">Administración</p><h1>Estudiantes</h1></div>
+                <div><p class="eyebrow" id="role-label"></p><h1>Estudiantes</h1></div>
                 <button id="new-student" class="button primary" type="button">Nuevo estudiante</button>
             </div>
-            <section class="panel stack" aria-labelledby="import-title">
+            <section class="panel stack" id="admin-import" aria-labelledby="import-title" hidden>
                 <div>
                     <h2 id="import-title">Cargar Excel</h2>
                     <p class="muted">Selecciona un Excel con las columnas Nombre y Curso o el archivo del buscador local. También puedes importar su respaldo JSON.</p>
@@ -92,11 +98,11 @@
                 <div class="actions">
                     <button id="edit-student" class="button secondary" type="button">Editar ficha</button>
                     <button id="copy-student" class="button secondary" type="button">Copiar ficha</button>
-                    <button id="make-folio" class="button primary" type="button">Generar folio</button>
-                    <button id="remove-student" class="button danger" type="button">Eliminar</button>
+                    <button id="make-folio" class="button primary" type="button" hidden>Generar folio</button>
+                    <button id="remove-student" class="button danger" type="button" hidden>Eliminar</button>
                 </div>
             </section>
-            <details class="panel">
+            <details id="admin-folios" class="panel" hidden>
                 <summary>Folios generados</summary>
                 <p class="muted">Solo se muestra el estado a quien consulta por folio.</p>
                 <ul id="folio-list" class="list" aria-label="Folios generados"></ul>
@@ -104,6 +110,21 @@
             <p id="workspace-status" class="message" role="status"></p>
         </section>
     </main>
+
+    <dialog id="migration-dialog" aria-labelledby="migration-title">
+        <form id="migration" class="stack">
+            <h2 id="migration-title">Recuperar las fichas de este navegador</h2>
+            <p class="muted">Usa una vez la contraseña anterior del buscador para trasladar tus fichas y folios al acceso nuevo.</p>
+            <label>Contraseña anterior
+                <input name="previousPassword" type="password" autocomplete="off" required maxlength="256">
+            </label>
+            <p id="migration-status" class="message" role="status"></p>
+            <div class="actions">
+                <button type="submit" class="button primary">Recuperar fichas</button>
+                <button type="button" class="button close">Volver</button>
+            </div>
+        </form>
+    </dialog>
 
     <dialog id="validation-dialog" aria-labelledby="validation-title">
         <form id="validation" class="stack">
@@ -130,7 +151,7 @@
                 <label>Teléfono <input name="academic_phone" type="tel" maxlength="80"></label>
                 <label>Correo <input name="academic_email" type="email" maxlength="254"></label>
             </fieldset>
-            <fieldset>
+            <fieldset id="financial-fields">
                 <legend>Apoderado de cuentas</legend>
                 <label class="check"><input id="same-contact" type="checkbox"> Mismo apoderado</label>
                 <label>Nombre <input name="financial_name" maxlength="200"></label>
