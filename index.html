@@ -6,7 +6,7 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
     <title>Student Finder</title>
-    <link rel="stylesheet" href="portal-local.css?v=13">
+    <link rel="stylesheet" href="portal-local.css?v=14">
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
         integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous" defer></script>
     <script type="module" src="portal-local.js?v=13"></script>
@@ -92,17 +92,25 @@
                 </div>
             </section>
             <section id="student-card" class="panel stack student-card" hidden>
-                <div><h2 id="student-name" tabindex="-1"></h2><p id="student-course" class="muted"></p><p id="student-rut" class="muted" hidden></p></div>
+                <div class="student-heading">
+                    <h2 id="student-name" tabindex="-1"></h2>
+                    <div class="student-meta">
+                        <p id="student-course" class="muted"></p>
+                        <p id="student-rut" class="muted" hidden></p>
+                    </div>
+                </div>
                 <div id="contact-cards" class="contact-cards"></div>
-                <div class="actions">
+                <div class="actions student-actions">
                     <button id="edit-student" class="button secondary" type="button">Editar ficha</button>
                     <button id="copy-student" class="button secondary" type="button">Copiar ficha</button>
                     <button id="add-validation" class="button primary" type="button">Agregar validación</button>
                     <button id="make-folio" class="button secondary" type="button" hidden>Generar folio</button>
                     <button id="remove-student" class="button danger" type="button" hidden>Eliminar</button>
                 </div>
-                <h3>Historial de validaciones</h3>
-                <ul id="student-history" class="list" aria-label="Historial de validaciones"></ul>
+                <section class="validation-history" aria-labelledby="student-history-title">
+                    <h3 id="student-history-title">Historial de validaciones</h3>
+                    <ul id="student-history" class="list" aria-label="Historial de validaciones"></ul>
+                </section>
             </section>
             <p id="workspace-status" class="message" role="status"></p>
         </section>
@@ -174,19 +182,21 @@
     <dialog id="student-dialog" aria-labelledby="student-title">
         <form id="student-form" class="stack">
             <h2 id="student-title">Ficha del estudiante</h2>
-            <label>Nombre completo <input name="name" required maxlength="200"></label>
-            <label>Curso <input name="course" maxlength="80"></label>
-            <label id="student-rut-input">RUT <input name="rut" maxlength="16"></label>
-            <fieldset>
+            <div class="form-pair">
+                <label class="form-full">Nombre completo <input name="name" required maxlength="200"></label>
+                <label>Curso <input name="course" maxlength="80"></label>
+                <label id="student-rut-input">RUT <input name="rut" maxlength="16"></label>
+            </div>
+            <fieldset class="form-pair">
                 <legend>Apoderado académico</legend>
-                <label>Nombre <input name="academic_name" maxlength="200"></label>
+                <label class="form-full">Nombre <input name="academic_name" maxlength="200"></label>
                 <label>Teléfono <input name="academic_phone" type="tel" maxlength="80"></label>
                 <label>Correo <input name="academic_email" type="email" maxlength="254"></label>
             </fieldset>
-            <fieldset id="financial-fields">
+            <fieldset id="financial-fields" class="form-pair">
                 <legend>Apoderado de cuentas</legend>
-                <label class="check"><input id="same-contact" type="checkbox"> Mismo apoderado</label>
-                <label>Nombre <input name="financial_name" maxlength="200"></label>
+                <label class="check form-full"><input id="same-contact" type="checkbox"> Mismo apoderado</label>
+                <label class="form-full">Nombre <input name="financial_name" maxlength="200"></label>
                 <label>Teléfono <input name="financial_phone" type="tel" maxlength="80"></label>
                 <label>Correo <input name="financial_email" type="email" maxlength="254"></label>
             </fieldset>
