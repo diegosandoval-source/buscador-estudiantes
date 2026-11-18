@@ -384,9 +384,6 @@ legend { padding: 0 .25rem; font-weight: 700; }
 .wide-dialog details > div { padding-top: 1rem; }
 .wide-dialog code { font-size: .85rem; overflow-wrap: anywhere; }
 #user-form { border-top: 1px solid var(--line); }
-#mapping-columns { padding-top: .75rem; border-top: 1px solid var(--line); }
-#mapping-preview { padding: 1rem; border-radius: .65rem; background: var(--tint); }
-#mapping-hint { font-size: .92rem; }
 @media (max-width: 33rem) {
     .wide-dialog { width: calc(100% - 1rem); }
     .data-table th, .data-table td { padding: .8rem; }

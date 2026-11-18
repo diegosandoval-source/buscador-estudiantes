@@ -1,10 +1,10 @@
 import { changeInitialPassword, checkSession, folioStatus, listUsers, manageUser, newCode, openAccount, refreshSession,
     saveVault, todayInChile } from './local-data.js?v=15';
-import { normalizeCourse, normalized, readRoster } from './student-import.js?v=15';
+import { normalizeCourse, normalized } from './student-import.js?v=15';
 import { displayRut, normalizeRut, resolveStudent, studentMatches, validationFromForm, validationLabels } from './validation-records.js?v=15';
-import { importFields, inspectWorkbook, mergeImportedStudents,
-    parseMappedSheet, suggestMapping, withComparisons } from './school-records.js?v=15';
+import { inspectWorkbook, mergeImportedStudents, withComparisons } from './school-records.js?v=15';
 import { buildStudentSearchIndex } from './student-search.js?v=17';
+import { readAutomaticRoster } from './excel-import.js?v=18';
 
 const get = (id) => document.getElementById(id);
 const login = get('login');
@@ -30,7 +30,6 @@ let editing;
 let editingFolio;
 let recordStudentId;
 let recordValidationId;
-let pendingWorkbook;
 let editingUser;
 let studentIndex;
 const rememberedUserKey = 'student-finder-remembered-user';
@@ -171,7 +170,6 @@ get('logout').addEventListener('click', () => {
     editing = null;
     editingFolio = null;
     editingUser = null;
-    pendingWorkbook = null;
     recordStudentId = null;
     recordValidationId = null;
     importFile.value = '';
@@ -181,7 +179,7 @@ get('logout').addEventListener('click', () => {
     login.reset();
     search.value = '';
     get('search-results').hidden = true;
-    for (const id of ['results', 'contact-cards', 'student-history', 'user-list', 'mapping-columns', 'mapping-contacts']) get(id).replaceChildren();
+    for (const id of ['results', 'contact-cards', 'student-history', 'user-list']) get(id).replaceChildren();
     for (const id of ['student-name', 'student-course', 'student-rut', 'connected-user', 'search-status', 'workspace-status',
         'import-status', 'import-notes', 'student-status', 'folio-status']) showMessage(id, '');
     get('folio-code').value = '';
@@ -582,125 +580,37 @@ importButton.addEventListener('click', () => {
 importFile.addEventListener('change', async () => {
     const file = importFile.files[0];
     if (!file || !isAdmin() || saving) return;
+    const importingSession = session;
     importButton.disabled = true;
     showMessage('import-status', 'Leyendo el archivo…');
     showMessage('import-notes', '');
     try {
-        await checkSession(session, true);
-        if (!file.name.toLowerCase().endsWith('.json')) {
-            pendingWorkbook = await inspectWorkbook(file);
-            if (!isAdmin() || importFile.files[0] !== file) return;
-            const form = get('mapping-form');
-            form.reset();
-            setOptions(form.elements.sheet, pendingWorkbook.sheets.map((sheet, index) => [String(index), sheet.name]), '0');
-            form.elements.header.value = pendingWorkbook.sheets[0].header + 1;
-            showMessage('mapping-filename', file.name);
-            showMessage('mapping-status', '');
-            renderMapping();
-            get('mapping-dialog').showModal();
-            showMessage('import-status', '');
-            return;
-        }
-        const roster = await readRoster(file);
+        await checkSession(importingSession, true);
+        const workbook = await inspectWorkbook(file);
         if (!isAdmin() || importFile.files[0] !== file) return;
+        if (session !== importingSession) throw new Error('La base cambió mientras se leía el archivo. Vuelve a seleccionarlo para cargar los datos actualizados.');
+        const roster = readAutomaticRoster(workbook);
         const previous = session.data;
         const merged = mergeImportedStudents(previous.students, roster.students);
         const tutors = new Map(previous.tutors.map((tutor) => [normalizeCourse(tutor.course), tutor]));
         for (const tutor of roster.tutors) tutors.set(normalizeCourse(tutor.course), tutor);
-        await persist({ ...previous, students: merged.students, tutors: Array.from(tutors.values()) }, 'base.importar', file.name);
+        showMessage('import-status', 'Guardando la base…');
+        await persist({ ...previous, students: merged.students, tutors: Array.from(tutors.values()) }, 'base.importar', file.name, {
+            students: roster.students.length, tutors: roster.tutors.length, omitted: roster.omitted, sheet: roster.sheetName
+        });
         search.value = '';
+        selected = null;
         render();
-        showMessage('import-status', `Importación guardada. ${merged.added} alumnos agregados y ${merged.updated} actualizados.`);
+        showMessage('import-status', `Base cargada: ${merged.added} alumnos nuevos y ${merged.updated} actualizados.`
+            + (merged.conflicts ? ` ${merged.conflicts} coincidencias ambiguas conservaron los datos anteriores.` : ''));
+        showMessage('import-notes', [workbook.sheets.length > 1 ? `Se cargó la hoja «${roster.sheetName}».` : '',
+            roster.omitted ? `Se omitieron ${roster.omitted} filas incompletas.` : ''].filter(Boolean).join(' '));
     } catch (error) {
         if (isAdmin() && importFile.files[0] === file) showMessage('import-status', error.message);
     } finally {
         if (importFile.files[0] === file) importFile.value = '';
         importButton.disabled = false;
     }
-});
-
-function setOptions(select, entries, selectedValue = '') {
-    select.replaceChildren(...entries.map(([value, label]) => {
-        const option = text('option', label);
-        option.value = value;
-        return option;
-    }));
-    select.value = selectedValue;
-}
-
-function currentImport() {
-    const form = get('mapping-form');
-    const sheet = pendingWorkbook?.sheets[Number(form.elements.sheet.value)];
-    if (!sheet) throw new Error('Vuelve a seleccionar el archivo.');
-    const header = Number(form.elements.header.value) - 1;
-    const mapping = Object.fromEntries(importFields.map((field) => [field.key, Number(form.elements[field.key].value)]));
-    return parseMappedSheet(sheet, header, mapping);
-}
-
-function renderMapping() {
-    if (!pendingWorkbook) return;
-    const form = get('mapping-form');
-    const sheet = pendingWorkbook.sheets[Number(form.elements.sheet.value)];
-    const header = Number(form.elements.header.value) - 1;
-    form.elements.header.max = sheet.rows.length;
-    const headers = sheet.rows[header] ?? [];
-    const mapping = suggestMapping(headers);
-    const columns = Math.max(headers.length, ...sheet.rows.slice(header + 1, header + 5).map((row) => row.length));
-    get('mapping-columns').replaceChildren();
-    get('mapping-contacts').replaceChildren();
-    for (const field of importFields) {
-        const label = text('label', field.label);
-        const select = document.createElement('select');
-        select.name = field.key;
-        setOptions(select, [['-1', 'Sin columna'], ...Array.from({ length: columns }, (_, index) => [
-            String(index), XLSX.utils.encode_col(index) + ' · ' + (headers[index] || 'Sin encabezado')
-        ])], String(mapping[field.key]));
-        select.addEventListener('change', previewMapping);
-        label.append(select);
-        get(field.contacts ? 'mapping-contacts' : 'mapping-columns').append(label);
-    }
-    previewMapping();
-}
-
-function previewMapping() {
-    try {
-        const roster = currentImport();
-        showMessage('mapping-preview', `${roster.students.length} alumnos · ${roster.tutors.length} cursos con tutor · ${roster.omitted} filas omitidas.`);
-        showMessage('mapping-hint', roster.students.length
-            ? 'Se agregarán los alumnos nuevos y se actualizarán las fichas coincidentes con sus contactos y profesores tutores.'
-            : 'Selecciona una hoja que contenga alumnos y revisa las columnas de nombre y curso.');
-    } catch (error) {
-        showMessage('mapping-preview', error.message);
-        showMessage('mapping-hint', '');
-    }
-}
-
-get('mapping-form').elements.sheet.addEventListener('change', () => {
-    const form = get('mapping-form');
-    form.elements.header.value = pendingWorkbook.sheets[Number(form.elements.sheet.value)].header + 1;
-    renderMapping();
-});
-get('mapping-form').elements.header.addEventListener('input', renderMapping);
-get('mapping-dialog').addEventListener('close', () => { pendingWorkbook = null; });
-
-handleSubmit(get('mapping-form'), 'mapping-status', async () => {
-    if (!isAdmin()) throw new Error('Esta operación requiere Administración.');
-    const roster = currentImport();
-    const filename = pendingWorkbook.name;
-    const previous = session.data;
-    if (!roster.students.length) throw new Error('Selecciona una hoja que contenga alumnos y revisa las columnas de nombre y curso.');
-    const merged = mergeImportedStudents(previous.students, roster.students);
-    const tutors = new Map(previous.tutors.map((tutor) => [normalizeCourse(tutor.course), tutor]));
-    for (const tutor of roster.tutors) tutors.set(normalizeCourse(tutor.course), tutor);
-    await persist({ ...previous, students: merged.students, tutors: Array.from(tutors.values()) }, 'base.importar', filename, {
-        students: roster.students.length, tutors: roster.tutors.length, omitted: roster.omitted
-    });
-    const summary = `Datos guardados. ${merged.added} alumnos agregados y ${merged.updated} actualizados.`
-        + (merged.conflicts ? ` ${merged.conflicts} coincidencias requieren revisión; se conservaron los datos guardados.` : '');
-    get('mapping-dialog').close();
-    search.value = '';
-    render();
-    showMessage('import-status', summary);
 });
 
 function openFolio(record) {
