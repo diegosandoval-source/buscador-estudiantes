@@ -354,53 +354,26 @@ legend { padding: 0 .25rem; font-weight: 700; }
 }
 @media (prefers-reduced-motion: reduce) { .button { transition: none; } }
 
-.admin-toolbar { display: flex; flex-wrap: wrap; gap: .85rem; }
-.admin-toolbar .button { flex: 1 1 12rem; padding: .85rem 1rem; background: var(--white); }
-.comparison-panel { padding-top: 1.5rem; border-top: 1px solid var(--line); gap: 1rem; }
-.comparison-state {
-    display: inline-flex;
-    justify-self: start;
-    align-items: center;
-    max-width: 100%;
-    padding: .3rem .65rem;
-    border-radius: .45rem;
-    background: #edf0f5;
-    color: #46536b;
-    font-size: .85rem;
-    font-weight: 700;
-    line-height: 1.4;
-}
-.comparison-state[data-state="validado"] { background: #e5f4ea; color: #19573e; }
-.comparison-state[data-state="diferencias"] { background: #fff0ce; color: #745011; }
-.comparison-state[data-state="no_encontrado"] { background: #fbe8e5; color: #852f2a; }
-.comparison-reasons { margin: 0; padding-left: 1.25rem; color: var(--muted); }
-.comparison-reasons li + li { margin-top: .45rem; }
 .table-scroll { width: 100%; min-width: 0; overflow-x: auto; border: 1px solid var(--line); border-radius: .75rem; }
 .data-table { width: 100%; min-width: 32rem; border-collapse: collapse; text-align: left; font-size: .93rem; }
 .data-table th, .data-table td { padding: 1rem 1.1rem; vertical-align: top; border-bottom: 1px solid var(--line); }
 .data-table th { background: #f0f3f8; font-size: .84rem; line-height: 1.5; font-weight: 700; }
 .data-table td { line-height: 1.6; overflow-wrap: anywhere; }
 .data-table tbody tr:last-child td { border-bottom: 0; }
-.data-table .difference td { background: #fff3d7; color: #62460f; }
-.data-table .difference td:first-child { box-shadow: inset 3px 0 0 #b57918; font-weight: 700; }
 .data-table .actions { gap: .5rem; }
 .data-table .button { white-space: nowrap; }
 .wide-dialog { width: min(72rem, calc(100% - 2rem)); }
-.wide-dialog .stack, #review-form { gap: 1.25rem; }
+.wide-dialog .stack { gap: 1.25rem; }
 .wide-dialog form { padding-top: 1rem; }
 .wide-dialog input:not([type="checkbox"]), .wide-dialog select { min-height: 48px; }
 .wide-dialog form > .actions { justify-content: flex-end; padding-top: 1rem; border-top: 1px solid var(--line); }
 .wide-dialog details > div { padding-top: 1rem; }
 .wide-dialog code { font-size: .85rem; overflow-wrap: anywhere; }
-#user-form, #tutor-form { border-top: 1px solid var(--line); }
+#user-form { border-top: 1px solid var(--line); }
 #mapping-columns { padding-top: .75rem; border-top: 1px solid var(--line); }
 #mapping-preview { padding: 1rem; border-radius: .65rem; background: var(--tint); }
 #mapping-hint { font-size: .92rem; }
-#course-students .stack, #audit-list .stack { gap: .45rem; }
-#course-students .list { min-width: 0; }
-#review-form textarea { min-height: 120px; resize: vertical; }
 @media (max-width: 33rem) {
     .wide-dialog { width: calc(100% - 1rem); }
-    .admin-toolbar .button { flex-basis: 100%; text-align: left; }
     .data-table th, .data-table td { padding: .8rem; }
 }

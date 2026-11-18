@@ -1,8 +1,8 @@
 import { changeInitialPassword, checkSession, folioStatus, listUsers, manageUser, newCode, openAccount, refreshSession,
-    saveVault, todayInChile, validateCode } from './local-data.js?v=15';
+    saveVault, todayInChile } from './local-data.js?v=15';
 import { normalizeCourse, normalized, readRoster } from './student-import.js?v=15';
 import { displayRut, normalizeRut, resolveStudent, studentMatches, validationFromForm, validationLabels } from './validation-records.js?v=15';
-import { comparisonLabels, courseSummaries, importFields, inspectWorkbook, mergeImportedStudents,
+import { importFields, inspectWorkbook, mergeImportedStudents,
     parseMappedSheet, suggestMapping, withComparisons } from './school-records.js?v=15';
 
 const get = (id) => document.getElementById(id);
@@ -15,15 +15,10 @@ const studentForm = get('student-form');
 const importFile = get('import-file');
 const importButton = get('open-import');
 const folioForm = get('folio-form');
-const validationForm = get('validation');
 const search = get('search');
 const studentDialog = get('student-dialog');
 const folioDialog = get('folio-dialog');
-const validationDialog = get('validation-dialog');
 const fields = ['name', 'phone', 'email'];
-const statusText = {
-    vigente: 'Vigente', vencido: 'Vencido', anulado: 'Anulado', no_existe: 'No se encontró un folio autorizado.'
-};
 
 let session;
 let pendingPasswordChange;
@@ -35,9 +30,7 @@ let editingFolio;
 let recordStudentId;
 let recordValidationId;
 let pendingWorkbook;
-let importPurpose = 'students';
 let editingUser;
-let editingCourse;
 const rememberedUserKey = 'student-finder-remembered-user';
 
 function text(tag, value) {
@@ -103,12 +96,10 @@ function openWorkspace(nextSession) {
     get('logout').hidden = false;
     get('load-data').hidden = !admin;
     get('connected-user').hidden = false;
-    for (const id of ['make-folio', 'remove-student', 'open-import', 'new-student', 'edit-student',
-        'add-validation', 'review-comparison', 'admin-tools']) get(id).hidden = !admin;
+    for (const id of ['open-import', 'new-student', 'open-users']) get(id).hidden = !admin;
     showMessage('role-label', admin ? 'Administración' : 'Consulta');
     showMessage('welcome-title', 'Bienvenido, ' + (nextSession.username === 'admin' ? 'Administrador'
         : nextSession.username === 'enfermeria' ? 'Enfermería' : nextSession.username));
-    showMessage('open-results', admin ? 'Validar estudiantes' : 'Resultados por curso');
     showMessage('connected-user', nextSession.username);
     showMessage('search-label', admin ? 'Nombre, apellido, RUT, curso o folio' : 'Nombre, apellido, curso o folio');
     try {
@@ -177,7 +168,6 @@ get('logout').addEventListener('click', () => {
     editing = null;
     editingFolio = null;
     editingUser = null;
-    editingCourse = null;
     pendingWorkbook = null;
     recordStudentId = null;
     recordValidationId = null;
@@ -185,14 +175,12 @@ get('logout').addEventListener('click', () => {
     studentForm.reset();
     folioForm.reset();
     recordForm.reset();
-    validationForm.reset();
     login.reset();
     search.value = '';
     get('search-results').hidden = true;
-    for (const id of ['results', 'contact-cards', 'student-history', 'comparison-fields', 'comparison-reasons',
-        'user-list', 'tutor-list', 'course-summaries', 'course-students', 'audit-list', 'mapping-columns', 'mapping-contacts']) get(id).replaceChildren();
+    for (const id of ['results', 'contact-cards', 'student-history', 'user-list', 'mapping-columns', 'mapping-contacts']) get(id).replaceChildren();
     for (const id of ['student-name', 'student-course', 'student-rut', 'connected-user', 'search-status', 'workspace-status',
-        'import-status', 'import-notes', 'student-status', 'folio-status', 'validation-status']) showMessage(id, '');
+        'import-status', 'import-notes', 'student-status', 'folio-status']) showMessage(id, '');
     get('folio-code').value = '';
     get('folio-result').hidden = true;
     for (const dialog of document.querySelectorAll('dialog')) if (dialog.open) dialog.close();
@@ -247,7 +235,7 @@ function asResult(record, history) {
     description.className = 'result-line';
     const states = [...new Set(history.map((entry) => folioStatus(entry)))];
     const detail = [record.course, isAdmin() && record.rut ? 'RUT ' + displayRut(record.rut) : '',
-        `${history.length} ${history.length === 1 ? 'validación' : 'validaciones'}`].filter(Boolean).join(' · ');
+        history.length ? `${history.length} ${history.length === 1 ? 'validación' : 'validaciones'}` : ''].filter(Boolean).join(' · ');
     description.append(text('strong', record.name), text('span', detail));
     if (states.length) {
         const labels = document.createElement('div');
@@ -261,8 +249,6 @@ function asResult(record, history) {
         description.append(labels);
     }
     profile.append(avatar, description);
-    const comparison = session.data.comparisons.find((entry) => entry.studentId === record.id);
-    if (comparison) description.append(comparisonBadge(comparison.status));
     const openButton = action('Ver detalle', () => openStudentDetail(record.id));
     openButton.className += ' result-open';
     item.append(profile, openButton);
@@ -274,7 +260,7 @@ function renderResults() {
     const query = search.value.trim();
     const hasStudents = session.data.students.length > 0;
     const emptyMessage = isAdmin()
-        ? 'Actualmente no existen alumnos registrados. Para comenzar, presiona el botón Agregar validación.'
+        ? 'Aún no hay alumnos registrados. Comienza con «Cargar datos de Excel» o «Nuevo estudiante».'
         : 'Actualmente no existen alumnos registrados. Solicita la carga de datos a Administración.';
     get('search-results').hidden = !query && hasStudents;
     if (!query) {
@@ -332,9 +318,9 @@ function historyItem(record) {
 }
 
 function contacts(record) {
-    const tutor = session.data.tutors.find((item) => item.course === record.course);
+    const tutor = session.data.tutors.find((item) => normalizeCourse(item.course) === normalizeCourse(record.course));
     const items = [
-        ['Profesor tutor', [tutor?.name, tutor?.email]],
+        ['Profesor tutor', [record.tutor || tutor?.name, tutor?.email]],
         ['Apoderado académico', [record.academic_name, record.academic_phone, record.academic_email]]
     ];
     if (isAdmin()) items.push(['Apoderado de cuentas', [record.financial_name, record.financial_phone, record.financial_email]]);
@@ -356,8 +342,8 @@ function renderStudent() {
     }) : [];
     get('contact-cards').replaceChildren(...cards);
     const history = record ? (histories().get(record.id) ?? []).slice().reverse() : [];
-    get('student-history').replaceChildren(...(history.length ? history.map(historyItem) : [text('li', 'Aún no hay validaciones registradas.')]));
-    renderComparison();
+    get('student-validation-history').hidden = history.length === 0;
+    get('student-history').replaceChildren(...history.map(historyItem));
 }
 
 function render() {
@@ -365,7 +351,11 @@ function render() {
     renderStudent();
 }
 
-search.addEventListener('input', renderResults);
+search.addEventListener('input', () => {
+    showMessage('import-status', '');
+    showMessage('import-notes', '');
+    renderResults();
+});
 
 function navigateResults(event) {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing) return;
@@ -422,7 +412,6 @@ function openStudent(record) {
 }
 
 get('new-student').addEventListener('click', () => openStudent());
-get('edit-student').addEventListener('click', () => openStudent(selectedStudent()));
 get('same-contact').addEventListener('change', syncContacts);
 for (const field of fields) studentForm.elements['academic_' + field].addEventListener('input', syncContacts);
 
@@ -451,22 +440,6 @@ handleSubmit(studentForm, 'student-status', async () => {
     showMessage('workspace-status', 'Ficha guardada.');
 });
 
-get('remove-student').addEventListener('click', async () => {
-    const record = selectedStudent();
-    if (!record || !isAdmin() || !confirm('¿Eliminar esta ficha y sus folios en este navegador?')) return;
-    try {
-        const old = session.data;
-        await persist({ ...old,
-            students: old.students.filter((item) => item.id !== record.id),
-            folios: old.folios.filter((folio) => folio.studentId !== record.id),
-            validations: old.validations.filter((validation) => validation.studentId !== record.id)
-        }, 'estudiante.eliminar', record.id, { before: record });
-        selected = null;
-        render();
-        showMessage('workspace-status', 'Ficha eliminada.');
-    } catch (error) { showMessage('workspace-status', error.message); }
-});
-
 async function copy(value, status) {
     try {
         await navigator.clipboard.writeText(value);
@@ -478,15 +451,8 @@ async function copy(value, status) {
 
 get('copy-student').addEventListener('click', () => {
     const record = selectedStudent();
-    const comparison = session?.data.comparisons.find((entry) => entry.studentId === record?.id);
-    const lines = comparison ? [
-        'Resultado: ' + comparisonLabels[comparison.status], 'Última comparación: ' + formatDate(comparison.comparedAt),
-        ...comparison.fields.map((field) => field.label + ' · Referencia: ' + (field.reference || 'Sin dato')
-            + ' · Validación: ' + (field.submitted || 'Sin dato')),
-        ...comparison.reasons, comparison.review ? 'Revisión: ' + comparison.review.note : ''
-    ] : [];
     if (record) copy([record.name, record.course, isAdmin() ? displayRut(record.rut) : '', ...contacts(record).flatMap(([label, values]) =>
-        [label, ...values.filter(Boolean)]), ...lines].filter(Boolean).join('\n'), 'workspace-status');
+        [label, ...values.filter(Boolean)])].filter(Boolean).join('\n'), 'workspace-status');
 });
 
 function openRecord(student = null, record = null) {
@@ -513,7 +479,6 @@ function openRecord(student = null, record = null) {
 }
 
 get('load-data').addEventListener('click', () => openRecord());
-get('add-validation').addEventListener('click', () => { if (selectedStudent()) openRecord(selectedStudent()); });
 
 handleSubmit(recordForm, 'record-status', async () => {
     if (!isAdmin()) throw new Error('Esta operación requiere Administración.');
@@ -593,11 +558,7 @@ export function reviewRoster(roster, saved) {
 }
 
 importButton.addEventListener('click', () => {
-    if (isAdmin() && !saving) { importPurpose = 'students'; importFile.click(); }
-});
-
-get('open-reference').addEventListener('click', () => {
-    if (isAdmin() && !saving) { importPurpose = 'reference'; importFile.click(); }
+    if (isAdmin() && !saving) importFile.click();
 });
 
 importFile.addEventListener('change', async () => {
@@ -614,7 +575,6 @@ importFile.addEventListener('change', async () => {
             const form = get('mapping-form');
             form.reset();
             setOptions(form.elements.sheet, pendingWorkbook.sheets.map((sheet, index) => [String(index), sheet.name]), '0');
-            form.elements.purpose.value = importPurpose;
             form.elements.header.value = pendingWorkbook.sheets[0].header + 1;
             showMessage('mapping-filename', file.name);
             showMessage('mapping-status', '');
@@ -689,10 +649,8 @@ function previewMapping() {
         const roster = currentImport();
         showMessage('mapping-preview', `${roster.students.length} alumnos · ${roster.tutors.length} cursos con tutor · ${roster.omitted} filas omitidas.`);
         showMessage('mapping-hint', roster.students.length
-            ? get('mapping-form').elements.purpose.value === 'reference'
-                ? 'Al confirmar, esta nómina se utilizará como referencia para las comparaciones.'
-                : 'Al confirmar, se actualizarán las fichas coincidentes y se compararán con la nómina de referencia.'
-            : 'Esta hoja aporta cursos y tutores. Para acreditar la identidad de los alumnos, carga también una nómina de referencia.');
+            ? 'Se agregarán los alumnos nuevos y se actualizarán las fichas coincidentes con sus contactos y profesores tutores.'
+            : 'Selecciona una hoja que contenga alumnos y revisa las columnas de nombre y curso.');
     } catch (error) {
         showMessage('mapping-preview', error.message);
         showMessage('mapping-hint', '');
@@ -705,7 +663,6 @@ get('mapping-form').elements.sheet.addEventListener('change', () => {
     renderMapping();
 });
 get('mapping-form').elements.header.addEventListener('input', renderMapping);
-get('mapping-form').elements.purpose.addEventListener('change', previewMapping);
 get('mapping-dialog').addEventListener('close', () => { pendingWorkbook = null; });
 
 handleSubmit(get('mapping-form'), 'mapping-status', async () => {
@@ -713,30 +670,15 @@ handleSubmit(get('mapping-form'), 'mapping-status', async () => {
     const roster = currentImport();
     const filename = pendingWorkbook.name;
     const previous = session.data;
-    const reference = get('mapping-form').elements.purpose.value === 'reference';
-    if (!reference && !roster.students.length) throw new Error('Selecciona «Cursos, tutores o nómina de referencia» para importar esta hoja.');
-    let data;
-    let summary;
-    if (reference) {
-        const tutors = new Map(previous.tutors.map((tutor) => [normalizeCourse(tutor.course), tutor]));
-        for (const tutor of roster.tutors) tutors.set(normalizeCourse(tutor.course), tutor);
-        data = { ...previous, tutors: Array.from(tutors.values()),
-            referenceStudents: roster.students.length ? roster.students.map((row) => ({ ...row, id: crypto.randomUUID() })) : previous.referenceStudents,
-            referenceMeta: {
-                filename: roster.students.length ? filename : previous.referenceMeta?.filename ?? filename,
-                tutorFilename: roster.tutors.length ? filename : previous.referenceMeta?.tutorFilename ?? '',
-                at: new Date().toISOString(), count: roster.students.length || previous.referenceStudents.length
-            }
-        };
-        summary = `Referencia guardada. ${roster.tutors.length} cursos con tutor y ${data.referenceStudents.length} alumnos de referencia.`;
-    } else {
-        const merged = mergeImportedStudents(previous.students, roster.students);
-        data = { ...previous, students: merged.students };
-        summary = `Datos guardados. ${merged.added} alumnos agregados, ${merged.updated} actualizados y ${merged.conflicts} conflictos para revisar.`;
-    }
-    await persist(data, reference ? 'referencia.importar' : 'base.importar', filename, {
+    if (!roster.students.length) throw new Error('Selecciona una hoja que contenga alumnos y revisa las columnas de nombre y curso.');
+    const merged = mergeImportedStudents(previous.students, roster.students);
+    const tutors = new Map(previous.tutors.map((tutor) => [normalizeCourse(tutor.course), tutor]));
+    for (const tutor of roster.tutors) tutors.set(normalizeCourse(tutor.course), tutor);
+    await persist({ ...previous, students: merged.students, tutors: Array.from(tutors.values()) }, 'base.importar', filename, {
         students: roster.students.length, tutors: roster.tutors.length, omitted: roster.omitted
     });
+    const summary = `Datos guardados. ${merged.added} alumnos agregados y ${merged.updated} actualizados.`
+        + (merged.conflicts ? ` ${merged.conflicts} coincidencias requieren revisión; se conservaron los datos guardados.` : '');
     get('mapping-dialog').close();
     search.value = '';
     render();
@@ -758,7 +700,6 @@ function openFolio(record) {
     folioDialog.showModal();
 }
 
-get('make-folio').addEventListener('click', () => { if (selectedStudent()) openFolio(); });
 get('copy-folio').addEventListener('click', () => copy(get('folio-code').value, 'folio-status'));
 
 handleSubmit(folioForm, 'folio-status', async () => {
@@ -778,38 +719,9 @@ handleSubmit(folioForm, 'folio-status', async () => {
     editingFolio = record.code;
     get('folio-result').hidden = false;
     get('folio-code').value = record.code;
-    showMessage('folio-status', record.published ? 'Folio guardado. Puedes consultarlo con «Validar folio».' : 'Folio guardado como privado.');
+    showMessage('folio-status', record.published ? 'Folio guardado. Puedes consultarlo en Validación Externa.' : 'Folio guardado como privado.');
     render();
 });
-
-get('open-validation').addEventListener('click', () => {
-    if (!session) return;
-    validationForm.reset();
-    showMessage('validation-status', '');
-    validationDialog.showModal();
-});
-
-handleSubmit(validationForm, 'validation-status', async () => {
-    if (!session) return;
-    const validatingSession = session;
-    const value = validationForm.elements.code.value;
-    const result = await validateCode(value);
-    if (session === validatingSession && validationDialog.open && validationForm.elements.code.value === value) {
-        showMessage('validation-status', statusText[result]);
-    }
-});
-
-function formatDate(value) {
-    if (!value || Number.isNaN(new Date(value).getTime())) return 'Sin fecha';
-    return new Intl.DateTimeFormat('es-CL', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Santiago' }).format(new Date(value));
-}
-
-function comparisonBadge(status) {
-    const badge = text('span', comparisonLabels[status] ?? comparisonLabels.pendiente);
-    badge.className = 'comparison-state';
-    badge.dataset.state = status;
-    return badge;
-}
 
 function tableRow(values) {
     const row = document.createElement('tr');
@@ -821,51 +733,6 @@ function tableRow(values) {
     }));
     return row;
 }
-
-function renderComparison() {
-    const student = selectedStudent();
-    const entry = session?.data.comparisons.find((comparison) => comparison.studentId === student?.id);
-    const status = entry?.status ?? 'pendiente';
-    showMessage('comparison-state', comparisonLabels[status]);
-    get('comparison-state').dataset.state = status;
-    showMessage('comparison-date', entry ? 'Última comparación · ' + formatDate(entry.comparedAt) : 'Todavía no se ha ejecutado una comparación.');
-    get('comparison-fields').replaceChildren(...(entry?.fields ?? []).map((field) => {
-        const row = tableRow([field.label, field.reference || 'Sin dato', field.submitted || 'Sin dato']);
-        if (field.different) row.className = 'difference';
-        return row;
-    }));
-    get('comparison-reasons').replaceChildren(...(entry?.reasons ?? []).map((reason) => text('li', reason)));
-    showMessage('comparison-review', entry?.review
-        ? 'Revisión de ' + entry.review.actor + ' · ' + formatDate(entry.review.at) + ' · ' + entry.review.note : '');
-    get('review-comparison').hidden = !isAdmin() || !entry;
-}
-
-get('review-comparison').addEventListener('click', () => {
-    if (!isAdmin()) return;
-    const entry = session.data.comparisons.find((comparison) => comparison.studentId === selected);
-    if (!entry) return;
-    get('review-form').reset();
-    get('review-form').elements.status.value = entry.status;
-    showMessage('review-status', '');
-    get('review-dialog').showModal();
-});
-
-handleSubmit(get('review-form'), 'review-status', async () => {
-    if (!isAdmin()) throw new Error('Esta operación requiere Administración.');
-    const form = get('review-form');
-    const status = form.elements.status.value;
-    const note = form.elements.note.value.trim();
-    if (!comparisonLabels[status] || !note) throw new Error('Selecciona el resultado y explica la revisión realizada.');
-    const before = session.data.comparisons.find((entry) => entry.studentId === selected);
-    if (!before) throw new Error('Vuelve a abrir la ficha del estudiante.');
-    const review = { actor: session.username, at: new Date().toISOString(), note };
-    const comparisons = session.data.comparisons.map((entry) => entry.id === before.id ? { ...entry, status, review } : entry);
-    await persist({ ...session.data, comparisons, comparisonHistory: [...session.data.comparisonHistory, before] },
-        'comparacion.revisar', selected, { before: before.status, after: status, note });
-    get('review-dialog').close();
-    render();
-    showMessage('workspace-status', 'Revisión guardada en el historial.');
-});
 
 function resetUserForm() {
     editingUser = null;
@@ -927,150 +794,6 @@ get('new-user').addEventListener('click', resetUserForm);
 handleSubmit(get('user-form'), 'user-status', async () => {
     const form = get('user-form');
     await saveUser({ id: editingUser, username: form.elements.username.value, role: form.elements.role.value, active: form.elements.active.checked });
-});
-
-function renderTutors() {
-    get('tutor-list').replaceChildren(...session.data.tutors.slice().sort((a, b) => a.course.localeCompare(b.course, 'es', { numeric: true })).map((tutor) =>
-        tableRow([tutor.course, tutor.name, tutor.email, action('Editar', () => {
-            editingCourse = tutor.course;
-            const form = get('tutor-form');
-            for (const key of ['course', 'name', 'email']) form.elements[key].value = tutor[key] ?? '';
-            showMessage('tutor-status', '');
-            form.elements.name.focus();
-        })])));
-}
-
-get('open-courses').addEventListener('click', () => {
-    if (!isAdmin()) return;
-    editingCourse = null;
-    get('tutor-form').reset();
-    showMessage('tutor-status', '');
-    renderTutors();
-    get('courses-dialog').showModal();
-});
-get('new-course').addEventListener('click', () => {
-    editingCourse = null;
-    get('tutor-form').reset();
-    showMessage('tutor-status', '');
-});
-handleSubmit(get('tutor-form'), 'tutor-status', async () => {
-    if (!isAdmin()) throw new Error('Esta operación requiere Administración.');
-    const form = get('tutor-form');
-    const tutor = { course: normalizeCourse(form.elements.course.value), name: form.elements.name.value.trim(), email: form.elements.email.value.trim() };
-    if (!tutor.course || !tutor.name) throw new Error('Completa el curso y el profesor tutor.');
-    if (session.data.tutors.some((item) => item.course === tutor.course && item.course !== editingCourse)) {
-        throw new Error('Ese curso ya tiene una ficha. Selecciona Editar en su fila.');
-    }
-    const previous = editingCourse;
-    const tutors = [...session.data.tutors.filter((item) => item.course !== previous), tutor];
-    const rename = (records) => previous && previous !== tutor.course
-        ? records.map((record) => normalizeCourse(record.course) === previous ? { ...record, course: tutor.course } : record) : records;
-    await persist({ ...session.data, tutors, students: rename(session.data.students),
-        referenceStudents: rename(session.data.referenceStudents) }, 'tutor.guardar', tutor.course, {
-        before: session.data.tutors.find((item) => item.course === previous) ?? null, after: tutor
-    });
-    editingCourse = tutor.course;
-    renderTutors();
-    render();
-    showMessage('tutor-status', 'Curso y profesor tutor guardados.');
-});
-
-function renderCourseStudents() {
-    const course = get('report-course').value;
-    const state = get('report-state').value;
-    const query = get('report-query').value;
-    const comparisons = new Map(session.data.comparisons.map((entry) => [entry.studentId, entry]));
-    const students = session.data.students.filter((student) =>
-        (!course || normalizeCourse(student.course) === course)
-        && (!state || (comparisons.get(student.id)?.status ?? 'pendiente') === state)
-        && studentMatches(student, [], query));
-    students.sort((a, b) => a.name.localeCompare(b.name, 'es'));
-    get('course-students').replaceChildren(...students.map((student) => {
-        const item = document.createElement('li');
-        const detail = document.createElement('div');
-        detail.className = 'stack';
-        detail.append(text('strong', student.name), text('span', student.course), comparisonBadge(comparisons.get(student.id)?.status ?? 'pendiente'));
-        item.append(detail, action('Ver detalle', () => {
-            get('reports-dialog').close();
-            openStudentDetail(student.id);
-        }));
-        return item;
-    }));
-    showMessage('report-count', `${students.length} ${students.length === 1 ? 'alumno' : 'alumnos'} encontrados.`);
-}
-
-function renderReports() {
-    const summaries = courseSummaries(session.data);
-    showMessage('reference-summary', session.data.referenceStudents.length
-        ? `${session.data.referenceStudents.length} alumnos de referencia · ${session.data.tutors.length} cursos con tutor.`
-        : (session.data.referenceMeta?.count ?? 0) > 0
-            ? `${session.data.referenceMeta.count} alumnos de referencia · ${session.data.tutors.length} cursos con tutor.`
-            : 'Falta una nómina de referencia de alumnos. Las coincidencias de curso y tutor requieren revisión de identidad.');
-    setOptions(get('report-course'), [['', 'Todos los cursos'], ...summaries.map((item) => [item.course, item.course])]);
-    get('report-state').value = '';
-    get('report-query').value = '';
-    get('course-summaries').replaceChildren(...summaries.map((item) => tableRow([
-        action(item.course, () => { get('report-course').value = item.course; renderCourseStudents(); }),
-        item.tutor || 'Sin tutor asignado', item.total, item.validado, item.diferencias, item.no_encontrado, item.pendiente
-    ])));
-    renderCourseStudents();
-}
-
-get('report-course').addEventListener('change', renderCourseStudents);
-get('report-state').addEventListener('change', renderCourseStudents);
-get('report-query').addEventListener('input', renderCourseStudents);
-get('open-results').addEventListener('click', async () => {
-    const button = get('open-results');
-    if (!session || saving) return;
-    button.disabled = true;
-    try {
-        await checkSession(session);
-        if (isAdmin()) {
-            await persist(withComparisons(session.data, session.data, new Date().toISOString(), true), 'comparacion.ejecutar');
-            render();
-        }
-        renderReports();
-        get('reports-dialog').showModal();
-    } catch (error) { showMessage('workspace-status', error.message); }
-    finally { button.disabled = false; }
-});
-
-get('open-audit').addEventListener('click', () => {
-    if (!isAdmin()) return;
-    const labels = {
-        'estudiante.crear': 'Creó una ficha', 'estudiante.editar': 'Editó una ficha', 'estudiante.eliminar': 'Eliminó una ficha',
-        'validacion.crear': 'Agregó una validación', 'validacion.editar': 'Editó una validación', 'validacion.eliminar': 'Eliminó una validación',
-        'referencia.importar': 'Importó una referencia', 'base.importar': 'Importó datos de alumnos',
-        'comparacion.ejecutar': 'Ejecutó comparaciones', 'comparacion.revisar': 'Revisó un resultado',
-        'tutor.guardar': 'Actualizó un curso o tutor', 'cuenta.crear': 'Creó un usuario', 'cuenta.actualizar': 'Actualizó un usuario',
-        'cuenta.restablecer': 'Restableció una contraseña', 'folio.guardar': 'Guardó un folio'
-    };
-    get('audit-list').replaceChildren(...session.data.audit.slice().reverse().map((entry) => {
-        const item = document.createElement('li');
-        const body = document.createElement('div');
-        body.className = 'stack';
-        const details = entry.details ?? {};
-        const subject = session.data.students.find((student) => student.id === entry.subject)?.name
-            || details.before?.name || entry.subject || 'Registro general';
-        body.append(text('strong', labels[entry.action] ?? 'Actualizó datos'),
-            text('p', entry.actor + ' · ' + formatDate(entry.at)), text('p', subject));
-        if (details.note) body.append(text('p', details.note));
-        if (details.after && typeof details.after === 'object') {
-            const fieldLabels = { name: 'Nombre', course: 'Curso', rut: 'RUT', email: 'Correo',
-                academic_name: 'Apoderado académico', academic_phone: 'Teléfono académico', academic_email: 'Correo académico',
-                financial_name: 'Apoderado de cuentas', financial_phone: 'Teléfono de cuentas', financial_email: 'Correo de cuentas' };
-            for (const [key, label] of Object.entries(fieldLabels)) {
-                if (Object.hasOwn(details.after, key) && details.before?.[key] !== details.after[key]) {
-                    body.append(text('p', label + ' · ' + (details.before?.[key] || 'Sin dato') + ' → ' + (details.after[key] || 'Sin dato')));
-                }
-            }
-        }
-        if (details.students !== undefined) body.append(text('p', details.students + ' alumnos · ' + details.tutors + ' tutores · ' + details.omitted + ' filas omitidas'));
-        if (details.role) body.append(text('p', (details.role === 'admin' ? 'Administrador' : 'Consulta') + ' · ' + (details.active ? 'Cuenta activa' : 'Cuenta desactivada')));
-        item.append(body);
-        return item;
-    }));
-    get('audit-dialog').showModal();
 });
 
 async function syncAccess() {

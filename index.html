@@ -6,10 +6,10 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.sheetjs.com; style-src 'self'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
     <title>Student Finder</title>
-    <link rel="stylesheet" href="portal-local.css?v=15">
+    <link rel="stylesheet" href="portal-local.css?v=16">
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
         integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous" defer></script>
-    <script type="module" src="portal-local.js?v=15"></script>
+    <script type="module" src="portal-local.js?v=16"></script>
 </head>
 <body>
     <header class="app-header">
@@ -63,21 +63,14 @@
                     <h1 id="welcome-title">Bienvenido</h1>
                 </div>
             </div>
-            <nav id="admin-tools" class="admin-toolbar" aria-label="Administración" hidden>
-                <button id="open-reference" class="button secondary" type="button">Cargar Libro1 o nómina</button>
-                <button id="open-courses" class="button secondary" type="button">Cursos y tutores</button>
-                <button id="open-users" class="button secondary" type="button">Gestión de usuarios</button>
-                <button id="open-audit" class="button secondary" type="button">Historial de cambios</button>
-            </nav>
             <input id="import-file" type="file" accept=".xlsx,.xls,.json" aria-label="Archivo de estudiantes" hidden>
             <section class="panel stack roster-panel" aria-labelledby="search-title">
                 <div class="section-heading">
                     <h2 id="search-title">Buscar alumnos</h2>
                     <div class="actions">
                         <button id="open-import" class="button secondary" type="button" hidden>Cargar datos de Excel</button>
-                        <button id="open-results" class="button secondary" type="button">Resultados por curso</button>
+                        <button id="open-users" class="button secondary" type="button" hidden>Gestión de usuarios</button>
                         <button id="new-student" class="button secondary" type="button">Nuevo estudiante</button>
-                        <button id="open-validation" class="button secondary" type="button" aria-haspopup="dialog">Validar folio</button>
                     </div>
                 </div>
                 <label class="search-field"><span id="search-label">Nombre, apellido, curso o folio</span>
@@ -108,27 +101,9 @@
                 </div>
                 <div id="contact-cards" class="contact-cards"></div>
                 <div class="actions student-actions">
-                    <button id="edit-student" class="button secondary" type="button">Editar ficha</button>
                     <button id="copy-student" class="button secondary" type="button">Copiar datos</button>
-                    <button id="add-validation" class="button primary" type="button">Agregar validación</button>
-                    <button id="make-folio" class="button secondary" type="button" hidden>Generar folio</button>
-                    <button id="remove-student" class="button danger" type="button" hidden>Eliminar</button>
                 </div>
-                <section id="student-comparison" class="comparison-panel stack" aria-labelledby="comparison-title">
-                    <div class="section-heading">
-                        <h3 id="comparison-title">Comparación con la referencia</h3>
-                        <span id="comparison-state" class="comparison-state"></span>
-                    </div>
-                    <p id="comparison-date" class="muted"></p>
-                    <div class="table-scroll"><table class="data-table">
-                        <thead><tr><th scope="col">Campo</th><th scope="col">Nómina de referencia</th><th scope="col">Datos de validación</th></tr></thead>
-                        <tbody id="comparison-fields"></tbody>
-                    </table></div>
-                    <ul id="comparison-reasons" class="comparison-reasons"></ul>
-                    <p id="comparison-review" class="muted"></p>
-                    <button id="review-comparison" type="button" class="button secondary" hidden>Revisar o confirmar resultado</button>
-                </section>
-                <section class="validation-history" aria-labelledby="student-history-title">
+                <section id="student-validation-history" class="validation-history" hidden aria-labelledby="student-history-title">
                     <h3 id="student-history-title">Historial de validaciones</h3>
                     <ul id="student-history" class="list" aria-label="Historial de validaciones"></ul>
                 </section>
@@ -142,9 +117,6 @@
             <h2 id="mapping-title">Revisar importación de Excel</h2>
             <p id="mapping-filename" class="muted"></p>
             <div class="form-pair">
-                <label>Usar el archivo para
-                    <select name="purpose"><option value="students">Datos de alumnos que se compararán</option><option value="reference">Cursos, tutores o nómina de referencia</option></select>
-                </label>
                 <label>Hoja <select name="sheet"></select></label>
                 <label>Fila de encabezados <input name="header" type="number" min="1" required></label>
             </div>
@@ -174,62 +146,6 @@
                 <p id="user-status" class="message" role="status"></p>
                 <div class="actions"><button type="submit" class="button primary">Guardar usuario</button><button id="new-user" type="button" class="button secondary">Nuevo usuario</button></div>
             </form>
-        </div>
-    </dialog>
-
-    <dialog id="courses-dialog" class="wide-dialog" aria-labelledby="courses-title">
-        <div class="stack">
-            <div class="section-heading"><h2 id="courses-title">Cursos y profesores tutores</h2><button type="button" class="button close">Cerrar</button></div>
-            <div class="table-scroll"><table class="data-table">
-                <thead><tr><th scope="col">Curso</th><th scope="col">Profesor tutor</th><th scope="col">Correo</th><th scope="col">Acciones</th></tr></thead>
-                <tbody id="tutor-list"></tbody>
-            </table></div>
-            <form id="tutor-form" class="stack">
-                <div class="form-pair">
-                    <label>Curso <input name="course" required maxlength="80" placeholder="1EM-C"></label>
-                    <label>Profesor tutor <input name="name" required maxlength="200"></label>
-                    <label class="form-full">Correo del profesor <input name="email" type="email" maxlength="254"></label>
-                </div>
-                <p id="tutor-status" class="message" role="status"></p>
-                <div class="actions"><button type="submit" class="button primary">Guardar curso y tutor</button><button id="new-course" type="button" class="button secondary">Nuevo curso</button></div>
-            </form>
-        </div>
-    </dialog>
-
-    <dialog id="reports-dialog" class="wide-dialog" aria-labelledby="reports-title">
-        <div class="stack">
-            <div class="section-heading"><h2 id="reports-title">Resultados por curso</h2><button type="button" class="button close">Cerrar</button></div>
-            <p id="reference-summary" class="muted"></p>
-            <div class="table-scroll"><table class="data-table">
-                <thead><tr><th scope="col">Curso</th><th scope="col">Tutor</th><th scope="col">Total</th><th scope="col">Validados</th><th scope="col">Diferencias</th><th scope="col">No encontrados</th><th scope="col">Pendientes</th></tr></thead>
-                <tbody id="course-summaries"></tbody>
-            </table></div>
-            <div class="form-pair">
-                <label>Curso <select id="report-course"></select></label>
-                <label>Estado <select id="report-state"><option value="">Todos los estados</option><option value="validado">Validado</option><option value="diferencias">Con diferencias</option><option value="no_encontrado">No encontrado</option><option value="pendiente">Pendiente de revisión</option></select></label>
-                <label class="form-full">Buscar en los resultados <input id="report-query" type="search" maxlength="160" autocomplete="off"></label>
-            </div>
-            <p id="report-count" class="message" role="status"></p>
-            <ul id="course-students" class="list"></ul>
-        </div>
-    </dialog>
-
-    <dialog id="review-dialog" aria-labelledby="review-title">
-        <form id="review-form" class="stack">
-            <h2 id="review-title">Revisión del resultado</h2>
-            <label>Resultado confirmado
-                <select name="status"><option value="validado">Validado manualmente</option><option value="diferencias">Con diferencias</option><option value="no_encontrado">No encontrado</option><option value="pendiente">Pendiente de revisión</option></select>
-            </label>
-            <label>Motivo y comprobaciones realizadas <textarea name="note" required maxlength="1000" rows="4"></textarea></label>
-            <p id="review-status" class="message" role="status"></p>
-            <div class="actions"><button type="submit" class="button primary">Guardar revisión</button><button type="button" class="button close">Cancelar</button></div>
-        </form>
-    </dialog>
-
-    <dialog id="audit-dialog" class="wide-dialog" aria-labelledby="audit-title">
-        <div class="stack">
-            <div class="section-heading"><h2 id="audit-title">Historial de cambios</h2><button type="button" class="button close">Cerrar</button></div>
-            <ul id="audit-list" class="list"></ul>
         </div>
     </dialog>
 
@@ -282,20 +198,6 @@
         </form>
     </dialog>
 
-    <dialog id="validation-dialog" aria-labelledby="validation-title">
-        <form id="validation" class="stack">
-            <h2 id="validation-title">Validar folio</h2>
-            <p class="muted">Consulta los folios generados en este navegador.</p>
-            <label>Folio
-                <input name="code" required maxlength="40" spellcheck="false" autocomplete="off" autocapitalize="none">
-            </label>
-            <p id="validation-status" class="message" role="status"></p>
-            <div class="actions">
-                <button type="submit" class="button primary">Validar</button>
-                <button type="button" class="button close">Cerrar</button>
-            </div>
-        </form>
-    </dialog>
     <dialog id="student-dialog" aria-labelledby="student-title">
         <form id="student-form" class="stack">
             <h2 id="student-title">Ficha del estudiante</h2>
