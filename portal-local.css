@@ -213,8 +213,22 @@ a.button { display: inline-flex; align-items: center; text-decoration: none; }
 .search-field input { min-height: 55px; padding-left: 2.65rem; background: #fafbfd; font-size: 1.05rem; }
 .result-count { font-size: .87rem; font-weight: 700; color: var(--muted); }
 .keyboard-hint { font-size: .82rem; }
-#results li { padding: 1.15rem 1rem; border-radius: .65rem; }
-#results li:focus-within { background: var(--tint); box-shadow: inset 3px 0 0 #315fa4; }
+#results { display: grid; gap: .65rem; }
+#results li { padding: 0; border: 0; }
+.result-open {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .9rem;
+    width: 100%;
+    padding: 1.15rem 1rem;
+    border-radius: .65rem;
+    text-align: left;
+    font-weight: 400;
+}
+.result-open:focus-visible { outline: 3px solid #315fa4; outline-offset: 3px; background: var(--tint); }
+.result-action { padding: .65rem .85rem; border: 1px solid var(--line); border-radius: .55rem; font-weight: 700; white-space: nowrap; }
 .empty-results {
     display: grid;
     justify-items: center;

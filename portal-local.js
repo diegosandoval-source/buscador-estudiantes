@@ -4,6 +4,7 @@ import { normalizeCourse, normalized, readRoster } from './student-import.js?v=1
 import { displayRut, normalizeRut, resolveStudent, studentMatches, validationFromForm, validationLabels } from './validation-records.js?v=15';
 import { importFields, inspectWorkbook, mergeImportedStudents,
     parseMappedSheet, suggestMapping, withComparisons } from './school-records.js?v=15';
+import { buildStudentSearchIndex } from './student-search.js?v=17';
 
 const get = (id) => document.getElementById(id);
 const login = get('login');
@@ -31,6 +32,7 @@ let recordStudentId;
 let recordValidationId;
 let pendingWorkbook;
 let editingUser;
+let studentIndex;
 const rememberedUserKey = 'student-finder-remembered-user';
 
 function text(tag, value) {
@@ -164,6 +166,7 @@ handleSubmit(passwordForm, 'password-status', async () => {
 get('logout').addEventListener('click', () => {
     if (saving) return;
     session = null;
+    studentIndex = null;
     selected = null;
     editing = null;
     editingFolio = null;
@@ -213,32 +216,39 @@ async function persist(data, operation = 'datos.actualizar', subject = '', detai
     }
 }
 
+function searchIndex() {
+    if (studentIndex?.source !== session.data.students) studentIndex = buildStudentSearchIndex(session.data.students);
+    return studentIndex;
+}
+
 function histories() {
     const byStudent = new Map();
+    const index = searchIndex();
     const legacy = session.data.folios.map((folio) => ({ ...folio, type: 'Folio de validación', legacy: true }));
     for (const record of [...session.data.validations, ...legacy]) {
-        if (!byStudent.has(record.studentId)) byStudent.set(record.studentId, []);
-        byStudent.get(record.studentId).push(record);
+        const studentId = index.byId.get(record.studentId)?.student.id ?? record.studentId;
+        if (!byStudent.has(studentId)) byStudent.set(studentId, []);
+        byStudent.get(studentId).push(record);
     }
     return byStudent;
 }
 
 function asResult(record, history) {
     const item = document.createElement('li');
-    const profile = document.createElement('div');
+    const profile = document.createElement('span');
     profile.className = 'result-profile';
     const initials = record.name.trim().split(/\s+/).slice(0, 2).map((word) => Array.from(word)[0]).join('');
     const avatar = text('span', initials.toLocaleUpperCase('es'));
     avatar.className = 'result-avatar';
     avatar.setAttribute('aria-hidden', 'true');
-    const description = document.createElement('div');
+    const description = document.createElement('span');
     description.className = 'result-line';
     const states = [...new Set(history.map((entry) => folioStatus(entry)))];
     const detail = [record.course, isAdmin() && record.rut ? 'RUT ' + displayRut(record.rut) : '',
         history.length ? `${history.length} ${history.length === 1 ? 'validación' : 'validaciones'}` : ''].filter(Boolean).join(' · ');
     description.append(text('strong', record.name), text('span', detail));
     if (states.length) {
-        const labels = document.createElement('div');
+        const labels = document.createElement('span');
         labels.className = 'state-labels';
         labels.append(...states.map((state) => {
             const badge = text('span', validationLabels[state]);
@@ -249,9 +259,12 @@ function asResult(record, history) {
         description.append(labels);
     }
     profile.append(avatar, description);
-    const openButton = action('Ver detalle', () => openStudentDetail(record.id));
-    openButton.className += ' result-open';
-    item.append(profile, openButton);
+    const openButton = action('', () => openStudentDetail(record.id));
+    openButton.className = 'button result-open';
+    const detailLabel = text('span', 'Ver detalle');
+    detailLabel.className = 'result-action';
+    openButton.append(profile, detailLabel);
+    item.append(openButton);
     return item;
 }
 
@@ -272,9 +285,10 @@ function renderResults() {
         return;
     }
     const byStudent = histories();
-    const matches = session.data.students.filter((record) => studentMatches(record, byStudent.get(record.id) ?? [], query));
-    matches.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
-    get('results').replaceChildren(...matches.slice(0, 30).map((record) => asResult(record, byStudent.get(record.id) ?? [])));
+    const matches = searchIndex().groups.filter((group) => group.members.some((record) =>
+        studentMatches(record, byStudent.get(group.student.id) ?? [], query)));
+    matches.sort((a, b) => a.student.name.localeCompare(b.student.name, 'es', { sensitivity: 'base' }));
+    get('results').replaceChildren(...matches.slice(0, 30).map(({ student }) => asResult(student, byStudent.get(student.id) ?? [])));
     get('search-keyboard').hidden = matches.length === 0;
     get('empty-results').hidden = matches.length > 0;
     showMessage('empty-results-message', session.data.students.length
@@ -285,12 +299,15 @@ function renderResults() {
 }
 
 function selectedStudent() {
-    return session?.data.students.find((record) => record.id === selected);
+    return session ? searchIndex().byId.get(selected)?.student : undefined;
 }
 
 function openStudentDetail(id) {
-    selected = id;
-    renderStudent();
+    const group = session && searchIndex().byId.get(id);
+    if (!group) return;
+    selected = group.student.id;
+    search.value = '';
+    render();
     get('student-name').focus({ preventScroll: true });
     get('student-card').scrollIntoView({ block: 'nearest' });
 }
@@ -352,9 +369,10 @@ function render() {
 }
 
 search.addEventListener('input', () => {
+    selected = null;
     showMessage('import-status', '');
     showMessage('import-notes', '');
-    renderResults();
+    render();
 });
 
 function navigateResults(event) {
